@@ -1,0 +1,57 @@
+[project]
+name = "ragify"
+description = "多模态RAG系统，支持MCP和Agent功能"
+version = "0.1.0"
+authors = [
+  { name = "Developer", email = "developer@example.com" }
+]
+requires-python = ">=3.13"
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
+]
+dependencies = [
+  "langchain==1.0.5",
+  "langchain-community>=0.0.20",
+  "langchain-core>=1.0.0",
+  "pydantic>=2.7.0,<3.0",
+  "pydantic-settings>=2.1.0",
+  "pyyaml>=6.0",
+  "python-dotenv>=1.0.0",
+  "pillow>=10.0.0",
+  "langchain-openai>=0.1.0",
+  "langchain-anthropic>=0.1.0",
+]
+
+[build-system]
+requires = ["setuptools>=40.0"]
+build-backend = "setuptools.build_meta"
+
+
+
+# 可选依赖 - 根据需要安装
+[project.optional-dependencies]
+llms = [
+  "openai",
+  "anthropic",
+]
+embeddings = [
+  "langchain-openai",
+  "sentence-transformers",
+]
+vectorstores = [
+  "chromadb",
+  "faiss-cpu",
+]
+dev = [
+  "pytest",
+  "black",
+  "isort",
+  "click",
+  "tqdm",
+  "ipython"
+]
+
+[project.scripts]
+ragify = "ragify.cli:ragify"

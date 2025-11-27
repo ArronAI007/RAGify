@@ -1,0 +1,38 @@
+Metadata-Version: 2.4
+Name: ragify
+Version: 0.1.0
+Summary: 多模态RAG系统，支持MCP和Agent功能
+Author-email: Developer <developer@example.com>
+Classifier: Programming Language :: Python :: 3
+Classifier: License :: OSI Approved :: MIT License
+Classifier: Operating System :: OS Independent
+Requires-Python: >=3.13
+License-File: LICENSE
+Requires-Dist: langchain==1.0.5
+Requires-Dist: langchain-community>=0.0.20
+Requires-Dist: langchain-core>=1.0.0
+Requires-Dist: pydantic<3.0,>=2.7.0
+Requires-Dist: pydantic-settings>=2.1.0
+Requires-Dist: pyyaml>=6.0
+Requires-Dist: python-dotenv>=1.0.0
+Requires-Dist: pillow>=10.0.0
+Requires-Dist: langchain-openai>=0.1.0
+Requires-Dist: langchain-anthropic>=0.1.0
+Provides-Extra: llms
+Requires-Dist: openai; extra == "llms"
+Requires-Dist: anthropic; extra == "llms"
+Provides-Extra: embeddings
+Requires-Dist: langchain-openai; extra == "embeddings"
+Requires-Dist: sentence-transformers; extra == "embeddings"
+Provides-Extra: vectorstores
+Requires-Dist: chromadb; extra == "vectorstores"
+Requires-Dist: faiss-cpu; extra == "vectorstores"
+Provides-Extra: dev
+Requires-Dist: pytest; extra == "dev"
+Requires-Dist: black; extra == "dev"
+Requires-Dist: isort; extra == "dev"
+Requires-Dist: click; extra == "dev"
+Requires-Dist: tqdm; extra == "dev"
+Requires-Dist: ipython; extra == "dev"
+Dynamic: license-file
+Dynamic: requires-python

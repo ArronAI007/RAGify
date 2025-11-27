@@ -1,0 +1,89 @@
+# RAGify - 多模态RAG系统配置
+
+# 基本配置
+base:
+  project_name: "RAGify"
+  version: "0.1.0"
+  log_level: "INFO"
+  data_dir: "./data"
+  output_dir: "./output"
+
+# 语言模型配置
+llm:
+  provider: "openai"
+  model_name: "gpt-4"
+  temperature: 0.7
+  max_tokens: 1024
+  api_key_env: "OPENAI_API_KEY"
+
+# 嵌入模型配置
+embeddings:
+  provider: "openai"
+  model_name: "text-embedding-3-small"
+  dimensions: 1536
+  api_key_env: "OPENAI_API_KEY"
+
+# 向量数据库配置
+vectorstore:
+  type: "chromadb"
+  persist_directory: "./vectorstore"
+  collection_name: "ragify_documents"
+  embedding_dimensions: 1536
+
+# 多模态配置
+multimodal:
+  enabled: true
+  image_processor:
+    enabled: true
+    max_size: 1024
+  audio_processor:
+    enabled: false
+  video_processor:
+    enabled: false
+
+# MCP配置
+mcp:
+  enabled: true
+  pipeline_steps:
+    - name: "document_loader"
+      enabled: true
+    - name: "document_processor"
+      enabled: true
+    - name: "embedding_generator"
+      enabled: true
+    - name: "vector_store"
+      enabled: true
+    - name: "retriever"
+      enabled: true
+    - name: "response_generator"
+      enabled: true
+
+# Agent配置
+agent:
+  enabled: true
+  type: "conversational"
+  max_history: 10
+  tools:
+    - name: "web_search"
+      enabled: false
+    - name: "calculator"
+      enabled: false
+    - name: "document_retriever"
+      enabled: true
+
+# 检索配置
+retrieval:
+  k: 3
+  score_threshold: 0.7
+  chunk_size: 1000
+  chunk_overlap: 100
+
+# 链配置
+chains:
+  retrieval_qa:
+    enabled: true
+    chain_type: "stuff"
+  conversational_retrieval:
+    enabled: true
+  multi_query:
+    enabled: false
