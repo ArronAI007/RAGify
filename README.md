@@ -35,23 +35,6 @@
 - 运行时配置覆盖
 - 组件级配置自定义
 
-## 项目结构
-
-```
-RAGify/
-├── config/                    # 配置文件目录
-│   └── config.yaml            # 默认配置文件
-├── ragify/                    # 主源码目录
-│   ├── __init__.py
-│   ├── config/                # 配置管理模块
-│   ├── core/                  # 核心RAG功能模块
-│   ├── mcp/                   # 多组件流水线模块
-│   └── agents/                # Agent模块
-├── examples/                  # 示例脚本目录
-├── tests/                     # 测试目录
-├── pyproject.toml             # Python包配置
-└── README.md                  # 项目文档
-```
 
 ## 快速开始
 
