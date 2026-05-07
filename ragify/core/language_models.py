@@ -6,6 +6,9 @@ from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, System
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from ..config import get_config
+import logging
+
+logger = logging.getLogger("ragify.core.language_models")
 
 
 class LanguageModelManager:
@@ -55,7 +58,7 @@ class LanguageModelManager:
             
             else:
                 # 默认使用OpenAI
-                print(f"警告: 不支持的LLM提供者 {self.llm_provider}，使用OpenAI默认值")
+                logger.warning(f"警告: 不支持的LLM提供者 {self.llm_provider}，使用OpenAI默认值")
                 return ChatOpenAI(
                     model=self.llm_model,
                     temperature=self.temperature,
@@ -64,7 +67,7 @@ class LanguageModelManager:
                 )
         
         except Exception as e:
-            print(f"初始化语言模型时出错: {e}")
+            logger.error(f"初始化语言模型时出错: {e}")
             # 返回None，稍后在调用时处理
             return None
     
@@ -73,7 +76,7 @@ class LanguageModelManager:
         生成文本响应
         """
         if not self.llm:
-            print("警告: 语言模型未初始化")
+            logger.warning("警告: 语言模型未初始化")
             return "语言模型未初始化，无法生成响应"
         
         try:
@@ -89,7 +92,7 @@ class LanguageModelManager:
                 raise ValueError(f"不支持的提示类型: {type(prompt)}")
         
         except Exception as e:
-            print(f"生成响应时出错: {e}")
+            logger.error(f"生成响应时出错: {e}")
             return f"生成响应时出错: {str(e)}"
     
     def _extract_content(self, response: Any) -> str:
@@ -239,6 +242,6 @@ class MultiModalLanguageModelManager(LanguageModelManager):
             return self._extract_content(response)
         
         except Exception as e:
-            print(f"生成多模态响应时出错: {e}")
+            logger.error(f"生成多模态响应时出错: {e}")
             # 回退到文本响应
             return self.generate_response(query, **kwargs)

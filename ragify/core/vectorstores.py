@@ -4,6 +4,9 @@ from langchain_community.vectorstores import Chroma, FAISS
 from langchain_core.vectorstores import VectorStore
 from ..config import get_config
 from .embeddings import EmbeddingGenerator
+import logging
+
+logger = logging.getLogger("ragify.core.vectorstores")
 
 
 class VectorStoreManager:
@@ -36,11 +39,11 @@ class VectorStoreManager:
                         collection_name=self.collection_name,
                         embedding_function=self.embedding_generator.embeddings
                     )
-                    print(f"成功加载现有的Chroma向量存储，集合: {self.collection_name}")
+                    logger.info(f"成功加载现有的Chroma向量存储，集合: {self.collection_name}")
                     return vectorstore
                 except Exception:
                     # 如果加载失败，创建新的
-                    print(f"创建新的Chroma向量存储，集合: {self.collection_name}")
+                    logger.info(f"创建新的Chroma向量存储，集合: {self.collection_name}")
                     return Chroma(
                         persist_directory=self.persist_directory,
                         collection_name=self.collection_name,
@@ -54,16 +57,16 @@ class VectorStoreManager:
                         self.persist_directory,
                         self.embedding_generator.embeddings
                     )
-                    print("成功加载现有的FAISS向量存储")
+                    logger.info("成功加载现有的FAISS向量存储")
                     return vectorstore
                 except Exception:
                     # 创建新的FAISS存储
-                    print("创建新的FAISS向量存储")
+                    logger.info("创建新的FAISS向量存储")
                     # FAISS需要先有文档才能创建，这里返回None
                     return None
             
             else:
-                print(f"不支持的向量存储类型: {self.vectorstore_type}，使用ChromaDB默认值")
+                logger.info(f"不支持的向量存储类型: {self.vectorstore_type}，使用ChromaDB默认值")
                 return Chroma(
                     persist_directory=self.persist_directory,
                     collection_name=self.collection_name,
@@ -71,7 +74,7 @@ class VectorStoreManager:
                 )
         
         except Exception as e:
-            print(f"初始化向量存储时出错: {e}")
+            logger.error(f"初始化向量存储时出错: {e}")
             return None
     
     def add_documents(self, documents: List[Document]) -> List[str]:
@@ -95,7 +98,7 @@ class VectorStoreManager:
                     valid_docs_and_embeddings.append((doc, embedding))
             
             if not valid_docs_and_embeddings:
-                print("警告: 没有有效的文档可添加到向量存储")
+                logger.warning("警告: 没有有效的文档可添加到向量存储")
                 return []
             
             valid_docs, valid_embeddings = zip(*valid_docs_and_embeddings)
@@ -123,11 +126,11 @@ class VectorStoreManager:
                 if self.vectorstore_type == "chromadb":
                     self.vectorstore.persist()
                 
-                print(f"成功添加 {len(valid_docs)} 个文档到向量存储")
+                logger.info(f"成功添加 {len(valid_docs)} 个文档到向量存储")
                 return doc_ids
             
         except Exception as e:
-            print(f"添加文档到向量存储时出错: {e}")
+            logger.error(f"添加文档到向量存储时出错: {e}")
             return []
     
     def similarity_search(self, query: str, k: int = 3, **kwargs) -> List[Document]:
@@ -135,7 +138,7 @@ class VectorStoreManager:
         执行相似度搜索
         """
         if not self.vectorstore:
-            print("警告: 向量存储未初始化")
+            logger.warning("警告: 向量存储未初始化")
             return []
         
         try:
@@ -152,7 +155,7 @@ class VectorStoreManager:
             return results
         
         except Exception as e:
-            print(f"相似度搜索时出错: {e}")
+            logger.error(f"相似度搜索时出错: {e}")
             return []
     
     def similarity_search_with_score(self, query: str, k: int = 3, score_threshold: float = None) -> List[tuple[Document, float]]:
@@ -160,7 +163,7 @@ class VectorStoreManager:
         执行带分数的相似度搜索
         """
         if not self.vectorstore:
-            print("警告: 向量存储未初始化")
+            logger.warning("警告: 向量存储未初始化")
             return []
         
         try:
@@ -187,7 +190,7 @@ class VectorStoreManager:
             return results
         
         except Exception as e:
-            print(f"带分数的相似度搜索时出错: {e}")
+            logger.error(f"带分数的相似度搜索时出错: {e}")
             return []
     
     def clear(self) -> bool:
@@ -221,11 +224,11 @@ class VectorStoreManager:
                     if os.path.exists(file_path):
                         os.remove(file_path)
             
-            print("向量存储已清空")
+            logger.info("向量存储已清空")
             return True
         
         except Exception as e:
-            print(f"清空向量存储时出错: {e}")
+            logger.error(f"清空向量存储时出错: {e}")
             return False
     
     def get_document_count(self) -> int:
@@ -248,5 +251,5 @@ class VectorStoreManager:
             else:
                 return 0
         except Exception as e:
-            print(f"获取文档数量时出错: {e}")
+            logger.error(f"获取文档数量时出错: {e}")
             return 0

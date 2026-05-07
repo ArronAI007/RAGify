@@ -3,6 +3,9 @@ from langchain_community.embeddings import OpenAIEmbeddings
 from langchain_core.embeddings import Embeddings
 from ..config import get_config
 import numpy as np
+import logging
+
+logger = logging.getLogger("ragify.core.embeddings")
 
 
 class EmbeddingGenerator:
@@ -38,7 +41,7 @@ class EmbeddingGenerator:
                 raise ImportError("请安装sentence-transformers: pip install sentence-transformers")
         else:
             # 默认使用OpenAI
-            print(f"警告: 不支持的嵌入提供者 {self.embedding_provider}，使用OpenAI默认值")
+            logger.warning(f"警告: 不支持的嵌入提供者 {self.embedding_provider}，使用OpenAI默认值")
             return OpenAIEmbeddings(
                 model=self.embedding_model,
                 dimensions=self.embedding_dimensions
@@ -70,7 +73,7 @@ class EmbeddingGenerator:
             
             return result
         except Exception as e:
-            print(f"生成嵌入向量时出错: {e}")
+            logger.error(f"生成嵌入向量时出错: {e}")
             return []
     
     def generate_single_embedding(self, text: str) -> Optional[List[float]]:
@@ -83,7 +86,7 @@ class EmbeddingGenerator:
         try:
             return self.embeddings.embed_query(text)
         except Exception as e:
-            print(f"生成单个嵌入向量时出错: {e}")
+            logger.error(f"生成单个嵌入向量时出错: {e}")
             return None
 
 

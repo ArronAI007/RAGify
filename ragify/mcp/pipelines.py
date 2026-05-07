@@ -10,6 +10,8 @@ from .components import (
 )
 import logging
 
+logger = logging.getLogger("ragify.mcp.pipelines")
+
 
 class IndexingPipeline(Pipeline):
     """
@@ -24,13 +26,13 @@ class IndexingPipeline(Pipeline):
         Args:
             config: 流水线配置参数
         """
-        super().__init__(config)
-        
+        super().__init__(name="indexing", config=config)
+
         # 添加组件到流水线
-        self.add_component("document_loader", DocumentLoaderComponent())
-        self.add_component("document_processor", DocumentProcessorComponent())
-        self.add_component("embedding_generator", EmbeddingGeneratorComponent())
-        self.add_component("vector_store", VectorStoreComponent())
+        self.add_component(DocumentLoaderComponent())
+        self.add_component(DocumentProcessorComponent())
+        self.add_component(EmbeddingGeneratorComponent())
+        self.add_component(VectorStoreComponent())
         
     def run(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -91,11 +93,11 @@ class QueryPipeline(Pipeline):
         Args:
             config: 流水线配置参数
         """
-        super().__init__(config)
-        
+        super().__init__(name="query", config=config)
+
         # 添加组件到流水线
-        self.add_component("retriever", RetrieverComponent())
-        self.add_component("response_generator", ResponseGeneratorComponent())
+        self.add_component(RetrieverComponent())
+        self.add_component(ResponseGeneratorComponent())
         
     def run(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -169,10 +171,10 @@ class MultiModalIndexingPipeline(IndexingPipeline):
             config: 流水线配置参数
         """
         super().__init__(config)
-        
+
         # 可以在这里添加多模态特定的配置或组件
         self.config.setdefault("multimodal_enabled", True)
-    
+
     def _generate_index_summary(self, result: Dict[str, Any]) -> Dict[str, Any]:
         """
         生成多模态索引摘要
@@ -267,11 +269,11 @@ class MultiStagePipeline(Pipeline):
             config: 流水线配置参数
         """
         super().__init__(config)
-        
+
         # 创建子流水线
         self.indexing_pipeline = IndexingPipeline(config)
         self.query_pipeline = QueryPipeline(config)
-        
+
     def run_indexing(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """
         运行索引子流水线

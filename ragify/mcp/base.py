@@ -1,6 +1,9 @@
 from abc import ABC, abstractmethod
 from typing import Dict, Any, Optional, List, Union
 from langchain_core.documents import Document
+import logging
+
+logger = logging.getLogger("ragify.mcp.base")
 
 
 class PipelineComponent(ABC):
@@ -8,8 +11,8 @@ class PipelineComponent(ABC):
     Pipeline组件的抽象基类，定义了所有组件必须实现的接口
     """
     
-    def __init__(self, name: str, config: Optional[Dict[str, Any]] = None):
-        self.name = name
+    def __init__(self, name: str = "", config: Optional[Dict[str, Any]] = None):
+        self.name = name or self.__class__.__name__
         self.config = config or {}
         self.enabled = self.config.get("enabled", True)
         self._setup()
@@ -68,7 +71,7 @@ class PipelineComponent(ABC):
             输出数据
         """
         if not self.enabled:
-            print(f"组件 {self.name} 已禁用，跳过执行")
+            logger.info(f"组件 {self.name} 已禁用，跳过执行")
             return data
         
         try:
@@ -83,7 +86,7 @@ class PipelineComponent(ABC):
             
             return final_data
         except Exception as e:
-            print(f"执行组件 {self.name} 时出错: {e}")
+            logger.error(f"执行组件 {self.name} 时出错: {e}")
             # 出错时返回原始数据
             return data
     
@@ -106,16 +109,16 @@ class Pipeline:
     处理管道，由多个PipelineComponent组成
     """
     
-    def __init__(self, name: str, config: Optional[Dict[str, Any]] = None):
-        self.name = name
+    def __init__(self, name: str = "", config: Optional[Dict[str, Any]] = None):
+        self.name = name or self.__class__.__name__
         self.config = config or {}
         self.components: List[PipelineComponent] = []
         self.enabled = self.config.get("enabled", True)
-    
+
     def add_component(self, component: PipelineComponent) -> None:
         """
         添加组件到管道
-        
+
         Args:
             component: 要添加的组件
         """
@@ -172,7 +175,7 @@ class Pipeline:
             处理后的输出数据
         """
         if not self.enabled:
-            print(f"管道 {self.name} 已禁用，跳过执行")
+            logger.info(f"管道 {self.name} 已禁用，跳过执行")
             return input_data
         
         data = input_data.copy()
@@ -189,11 +192,11 @@ class Pipeline:
         for component in self.components:
             # 检查组件是否启用
             if component.enabled:
-                print(f"执行组件: {component.name}")
+                logger.info(f"执行组件: {component.name}")
                 data = component.execute(data)
                 execution_info["components_executed"].append(component.name)
             else:
-                print(f"跳过禁用的组件: {component.name}")
+                logger.info(f"跳过禁用的组件: {component.name}")
         
         # 更新执行信息
         execution_info["end_data_size"] = len(str(data))
@@ -227,7 +230,7 @@ class Pipeline:
             component_names = set()
             for component in self.components:
                 if component.name in component_names:
-                    print(f"错误: 组件名称重复: {component.name}")
+                    logger.error(f"错误: 组件名称重复: {component.name}")
                     return False
                 component_names.add(component.name)
             
@@ -236,5 +239,5 @@ class Pipeline:
             
             return True
         except Exception as e:
-            print(f"验证管道时出错: {e}")
+            logger.error(f"验证管道时出错: {e}")
             return False

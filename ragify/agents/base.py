@@ -183,18 +183,18 @@ class AgentRegistry:
         """
         return list(self.agents.keys())
     
-    def create_agent(self, name: str, **kwargs) -> RAGifyAgent:
+    def create_agent(self, agent_type: str, **kwargs) -> RAGifyAgent:
         """
         创建Agent实例
-        
+
         Args:
-            name: Agent名称
+            agent_type: Agent类型名称（注册时的名称）
             **kwargs: Agent初始化参数
-            
+
         Returns:
             Agent实例
         """
-        agent_class = self.get_agent_class(name)
+        agent_class = self.get_agent_class(agent_type)
         return agent_class(**kwargs)
 
 

@@ -1,9 +1,38 @@
 from typing import List, Dict, Any, Optional, Union
 from langchain_core.documents import Document
-from langchain_core.retrievers import BaseRetriever
 from ..config import get_config
 from .vectorstores import VectorStoreManager
 from .language_models import LanguageModelManager
+import logging
+
+logger = logging.getLogger("ragify.core.chains")
+
+
+class SimpleConversationBufferMemory:
+    """
+    轻量级对话缓冲区内存实现。
+    替代 LangChain 1.0 中已移除的 ConversationBufferMemory。
+    """
+
+    def __init__(self, memory_key: str = "chat_history", return_messages: bool = True):
+        self.memory_key = memory_key
+        self.return_messages = return_messages
+        self.messages: List[Dict[str, str]] = []
+
+    def save_context(self, input_data: Dict[str, str], output_data: Dict[str, str]) -> None:
+        """保存对话上下文。"""
+        if "input" in input_data:
+            self.messages.append({"role": "user", "content": input_data["input"]})
+        if "response" in output_data:
+            self.messages.append({"role": "assistant", "content": output_data["response"]})
+
+    def load_memory_variables(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
+        """加载内存变量。"""
+        return {self.memory_key: self.messages if self.return_messages else self.messages}
+
+    def clear(self) -> None:
+        """清空内存。"""
+        self.messages = []
 
 
 class RAGChainManager:
@@ -15,14 +44,14 @@ class RAGChainManager:
         self.config = get_config()
         self.vectorstore_manager = VectorStoreManager()
         self.language_model_manager = LanguageModelManager()
-        self.memory = ConversationBufferMemory(
+        self.memory = SimpleConversationBufferMemory(
             memory_key="chat_history",
             return_messages=True
         )
         
         # 初始化成功标志
         self.initialized = True
-        print("RAG链管理器初始化成功")
+        logger.info("RAG链管理器初始化成功")
     
     def run_qa_chain(self, query: str) -> Dict[str, Any]:
         """
@@ -45,7 +74,7 @@ class RAGChainManager:
             
             return result
         except Exception as e:
-            print(f"运行会话检索链时出错: {e}")
+            logger.error(f"运行会话检索链时出错: {e}")
             # 回退到简单检索
             return self._simple_rag_query(query)
     
@@ -92,7 +121,7 @@ class RAGChainManager:
             return result
         
         except Exception as e:
-            print(f"执行简单RAG查询时出错: {e}")
+            logger.error(f"执行简单RAG查询时出错: {e}")
             return {
                 "query": query,
                 "answer": f"处理查询时出错: {str(e)}",
@@ -106,10 +135,10 @@ class RAGChainManager:
         """
         try:
             # 在这个简化版本中，我们不需要更新检索器，因为每次查询都会直接调用向量存储管理器
-            print("检索器已更新")
+            logger.info("检索器已更新")
         
         except Exception as e:
-            print(f"更新检索器时出错: {e}")
+            logger.error(f"更新检索器时出错: {e}")
 
 
 class MultiModalRAGChainManager(RAGChainManager):
@@ -125,14 +154,14 @@ class MultiModalRAGChainManager(RAGChainManager):
         self.vectorstore_manager = VectorStoreManager()
         self.language_model_manager = MultiModalLanguageModelManager()
         self.multimodal_enabled = self.config.get("multimodal.enabled", True)
-        self.memory = ConversationBufferMemory(
+        self.memory = SimpleConversationBufferMemory(
             memory_key="chat_history",
             return_messages=True
         )
         
         # 初始化成功标志
         self.initialized = True
-        print("多模态RAG链管理器初始化成功")
+        logger.info("多模态RAG链管理器初始化成功")
     
     def run_multimodal_query(self, query: str, images: List[Dict[str, Any]] = None) -> Dict[str, Any]:
         """
@@ -168,7 +197,7 @@ class MultiModalRAGChainManager(RAGChainManager):
             return result
         
         except Exception as e:
-            print(f"执行多模态查询时出错: {e}")
+            logger.error(f"执行多模态查询时出错: {e}")
             # 回退到常规查询
             return self.run_qa_chain(query)
     

@@ -13,9 +13,9 @@ from pathlib import Path
 # 添加项目根目录到Python路径
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from ragify.config import get_config, ConfigLoader
+from ragify.config import get_config
+from ragify.config.loader import initialize_config
 from ragify.mcp import IndexingPipeline, QueryPipeline
-# 导入更新后的agents模块
 from ragify.core import VectorStoreManager
 
 
@@ -47,16 +47,15 @@ def index(directory_path, config, clear):
     try:
         # 加载配置
         if config:
-            config_loader = ConfigLoader(config_path=config)
-            rag_config = config_loader.load_config()
-        else:
-            rag_config = get_config()
-        
+            from ragify.config.loader import initialize_config
+            initialize_config(config_path=config)
+        rag_config = get_config()
+
         click.echo(f"使用配置: {rag_config.config_path}")
         click.echo(f"开始索引目录: {directory_path}")
-        
+
         # 执行索引
-        pipeline = IndexingPipeline(config=rag_config)
+        pipeline = IndexingPipeline()
         result = pipeline.run({
             "directory_path": directory_path,
             "clear_vectorstore": clear
@@ -86,16 +85,14 @@ def query(query, config, top_k):
     try:
         # 加载配置
         if config:
-            config_loader = ConfigLoader(config_path=config)
-            rag_config = config_loader.load_config()
-        else:
-            rag_config = get_config()
-        
+            initialize_config(config_path=config)
+        rag_config = get_config()
+
         click.echo(f"使用配置: {rag_config.config_path}")
         click.echo(f"查询: {query}")
-        
+
         # 执行查询
-        pipeline = QueryPipeline(config=rag_config)
+        pipeline = QueryPipeline()
         result = pipeline.run({
             "query": query,
             "top_k": top_k
@@ -131,19 +128,17 @@ def clear_index(config):
     try:
         # 加载配置
         if config:
-            config_loader = ConfigLoader(config_path=config)
-            rag_config = config_loader.load_config()
-        else:
-            rag_config = get_config()
-        
+            initialize_config(config_path=config)
+        rag_config = get_config()
+
         click.confirm("确定要清空向量存储中的所有数据吗？此操作不可撤销。", abort=True)
-        
+
         # 清空向量存储
-        vectorstore_manager = VectorStoreManager(config=rag_config)
+        vectorstore_manager = VectorStoreManager()
         vectorstore_manager.clear()
-        
+
         click.echo("向量存储已成功清空")
-        
+
     except Exception as e:
         click.echo(f"清空向量存储时发生错误: {str(e)}", err=True)
         sys.exit(1)
@@ -158,21 +153,19 @@ def stats(config):
     try:
         # 加载配置
         if config:
-            config_loader = ConfigLoader(config_path=config)
-            rag_config = config_loader.load_config()
-        else:
-            rag_config = get_config()
-        
+            initialize_config(config_path=config)
+        rag_config = get_config()
+
         # 获取统计信息
-        vectorstore_manager = VectorStoreManager(config=rag_config)
+        vectorstore_manager = VectorStoreManager()
         doc_count = vectorstore_manager.get_document_count()
-        
-        click.echo(f"向量存储统计信息:")
-        click.echo(f"- 存储类型: {rag_config.vectorstore.type}")
-        click.echo(f"- 集合名称: {rag_config.vectorstore.collection_name}")
-        click.echo(f"- 持久化目录: {rag_config.vectorstore.persist_directory}")
+
+        click.echo("向量存储统计信息:")
+        click.echo(f"- 存储类型: {rag_config.get('vectorstore.type', 'unknown')}")
+        click.echo(f"- 集合名称: {rag_config.get('vectorstore.collection_name', 'unknown')}")
+        click.echo(f"- 持久化目录: {rag_config.get('vectorstore.persist_directory', 'unknown')}")
         click.echo(f"- 文档数量: {doc_count}")
-        
+
     except Exception as e:
         click.echo(f"获取统计信息时发生错误: {str(e)}", err=True)
         sys.exit(1)
@@ -240,41 +233,40 @@ def agent(command, config):
     try:
         # 加载配置
         if config:
-            config_loader = ConfigLoader(config_path=config)
-            rag_config = config_loader.load_config()
-        else:
-            rag_config = get_config()
-        
+            initialize_config(config_path=config)
+        rag_config = get_config()
+
         click.echo(f"使用配置: {rag_config.config_path}")
         click.echo(f"Agent命令: {command}")
-        
+
         # 创建Agent并执行命令（适配LangChain 1.0）
         try:
             from ragify.agents import RAGAgent, get_default_tools
-            agent_instance = RAGAgent(config=rag_config, tools=get_default_tools())
-            
+            agent_instance = RAGAgent(name="cli_rag_agent")
+            agent_instance.add_tools(get_default_tools())
+
             # 使用invoke方法替代ask方法
             result = agent_instance.invoke(command)
             response = result.get("response", "未生成响应")
-            
+
             # 显示结果
             click.echo("\nAgent响应:")
             click.echo("=" * 60)
             click.echo(response)
             click.echo("=" * 60)
-            
+
             # 显示执行摘要（如果有）
             if "execution_summary" in result:
                 summary = result["execution_summary"]
-                click.echo(f"\n执行统计:")
+                click.echo("\n执行统计:")
                 click.echo(f"- 执行时间: {summary.get('execution_time', 0):.2f}秒")
                 click.echo(f"- 工具调用次数: {summary.get('tool_calls_count', 0)}")
-                
+
         except ImportError as e:
             click.echo(f"错误: 无法导入Agent模块: {str(e)}", err=True)
             click.echo("提示: 请检查agents模块是否正确安装和更新")
             sys.exit(1)
-        
+
     except Exception as e:
         click.echo(f"Agent执行时发生错误: {str(e)}", err=True)
         sys.exit(1)

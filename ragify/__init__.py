@@ -23,13 +23,12 @@ from .mcp import (
     MultiModalIndexingPipeline, MultiModalQueryPipeline,
     MultiStagePipeline, create_pipeline
 )
-# 暂时注释掉agents模块的导入
-# from .agents import (
-#     RAGifyAgent, RAGifyTool, AgentRegistry,
-#     RAGAgent, MultiModalRAGAgent, PipelineAgent,
-#     get_default_tools, create_custom_tool,
-#     agent_registry
-# )
+from .agents import (
+    RAGifyAgent, RAGifyTool, AgentRegistry,
+    RAGAgent, MultiModalRAGAgent, PipelineAgent,
+    get_default_tools, create_custom_tool,
+    agent_registry
+)
 from .cli import ragify
 
 __all__ = [

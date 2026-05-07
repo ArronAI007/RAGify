@@ -1,6 +1,9 @@
 from typing import List, Dict, Any, Optional, Union
 import os
 from ..config import get_config
+import logging
+
+logger = logging.getLogger("ragify.core.document_loaders")
 
 # 适配langchain 1.0.5版本的导入
 try:
@@ -22,7 +25,7 @@ try:
         # 如果不存在，保持为None
         UnstructuredImageLoader = None
 except ImportError as e:
-    print(f"警告: 无法导入langchain组件: {e}")
+    logger.warning(f"警告: 无法导入langchain组件: {e}")
     # 如果langchain完全无法导入，定义必要的类以避免崩溃
     class Document:
         def __init__(self, page_content, metadata=None):
@@ -64,7 +67,7 @@ except ImportError as e:
                         continue  # 简化处理，只处理txt文件
                     documents.extend(loader.load())
                 except Exception as e:
-                    print(f"无法加载文件 {file}: {e}")
+                    logger.error(f"无法加载文件 {file}: {e}")
             return documents
     
     class UnstructuredFileLoader(TextLoader):
@@ -107,14 +110,17 @@ class MultiModalDocumentLoader:
             loader = UnstructuredFileLoader(file_path)
         
         documents = loader.load()
-        
-        # 添加元数据
+
+        # 创建新的 Document 对象以避免修改原始对象
+        result_docs = []
         for doc in documents:
-            doc.metadata["file_path"] = file_path
-            doc.metadata["file_type"] = file_ext
-            doc.metadata["source"] = file_path
-        
-        return documents
+            new_metadata = doc.metadata.copy()
+            new_metadata["file_path"] = file_path
+            new_metadata["file_type"] = file_ext
+            new_metadata["source"] = file_path
+            result_docs.append(Document(page_content=doc.page_content, metadata=new_metadata))
+
+        return result_docs
     
     def load_directory(self, directory_path: str, glob_pattern: str = "**/*") -> List[Document]:
         """
@@ -149,15 +155,18 @@ class MultiModalDocumentLoader:
         )
         
         documents = loader.load()
-        
-        # 添加元数据
+
+        # 创建新的 Document 对象以避免修改原始对象
+        result_docs = []
         for doc in documents:
-            if "source" in doc.metadata:
-                file_path = doc.metadata["source"]
+            new_metadata = doc.metadata.copy()
+            if "source" in new_metadata:
+                file_path = new_metadata["source"]
                 file_ext = os.path.splitext(file_path)[1].lower()
-                doc.metadata["file_type"] = file_ext
-        
-        return documents
+                new_metadata["file_type"] = file_ext
+            result_docs.append(Document(page_content=doc.page_content, metadata=new_metadata))
+
+        return result_docs
     
     def load_from_config(self) -> List[Document]:
         """
@@ -215,8 +224,8 @@ class ImageDocumentProcessor:
             text = pytesseract.image_to_string(image, lang='chi_sim+eng')
             return text.strip()
         except ImportError:
-            print("警告: pytesseract未安装，无法进行OCR提取")
+            logger.warning("警告: pytesseract未安装，无法进行OCR提取")
             return None
         except Exception as e:
-            print(f"OCR处理错误: {e}")
+            logger.error(f"OCR处理错误: {e}")
             return None

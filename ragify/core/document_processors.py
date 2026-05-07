@@ -8,6 +8,9 @@ from langchain_text_splitters import (
 )
 from ..config import get_config
 import re
+import logging
+
+logger = logging.getLogger("ragify.core.document_processors")
 
 
 class DocumentProcessor:
@@ -128,30 +131,36 @@ class MultiModalDocumentProcessor:
         if not self.is_multimodal(document):
             # 非多模态文档，使用常规处理器
             return self.document_processor.process_document(document)
-        
+
         # 对于图像文档，我们可能需要特殊处理
         # 这里简单地将图像信息作为内容处理
         # 在实际应用中，可能需要提取图像特征或使用OCR
-        
-        # 添加多模态标记
-        document.metadata["is_multimodal"] = True
-        
+
+        # 使用新的元数据字典，避免修改原始对象
+        new_metadata = document.metadata.copy()
+        new_metadata["is_multimodal"] = True
+
         # 如果有OCR文本，可以在这里处理
         ocr_text = document.metadata.get("ocr_text", "")
         if ocr_text:
             # 如果有OCR文本，使用它作为内容并分块
             original_content = document.page_content
-            document.page_content = ocr_text
-            chunk_docs = self.document_processor.process_document(document)
-            
-            # 恢复原始内容到第一个分块
+            ocr_document = Document(page_content=ocr_text, metadata=new_metadata)
+            chunk_docs = self.document_processor.process_document(ocr_document)
+
+            # 将原始内容合并到第一个分块，创建新的 Document 对象
             if chunk_docs:
-                chunk_docs[0].page_content = f"[IMAGE] {original_content}\n\nOCR文本: {ocr_text}"
-            
+                first_chunk = chunk_docs[0]
+                merged_content = f"[IMAGE] {original_content}\n\nOCR文本: {ocr_text}\n\n{first_chunk.page_content}"
+                chunk_docs[0] = Document(
+                    page_content=merged_content,
+                    metadata=first_chunk.metadata.copy()
+                )
+
             return chunk_docs
         else:
-            # 没有OCR文本，返回原始文档
-            return [document]
+            # 没有OCR文本，返回使用新元数据的文档副本
+            return [Document(page_content=document.page_content, metadata=new_metadata)]
     
     def process_multimodal_documents(self, documents: List[Document]) -> List[Document]:
         """

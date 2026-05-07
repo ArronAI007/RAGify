@@ -205,21 +205,21 @@ class MultiModalRAGAgent(RAGAgent):
         初始化多模态RAG Agent
         """
         super()._initialize()
-        
+
         # 使用多模态查询流水线
         from ..mcp import MultiModalQueryPipeline
         self.query_pipeline = MultiModalQueryPipeline()
-        
+
         # 添加多模态特定工具
         self.add_tool({
             "name": "multimodal_query",
             "func": self._multimodal_query,
             "description": "用于处理包含图像等多模态内容的查询。输入应该是一个包含'query'和可选的'image_urls'字段的JSON字符串。"
         })
-        
+
         # 重新设置Agent执行器以包含新工具
         self._setup_agent_executor()
-        
+
         self.logger.info(f"多模态RAG Agent '{self.name}' 初始化完成")
     
     def _setup_agent_executor(self) -> None:
@@ -329,9 +329,8 @@ class PipelineAgent(RAGifyAgent):
         初始化流水线Agent
         """
         # 初始化查询流水线
-        from ..mcp import QueryPipeline
         self.query_pipeline = QueryPipeline()
-        
+
         self.logger.info(f"流水线Agent '{self.name}' 初始化完成")
     
     def invoke(self, query: str, **kwargs) -> Dict[str, Any]:

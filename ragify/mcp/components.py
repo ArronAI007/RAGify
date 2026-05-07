@@ -9,6 +9,9 @@ from ..core import (
 )
 from ..config import get_config
 import os
+import logging
+
+logger = logging.getLogger("ragify.mcp.components")
 
 
 class DocumentLoaderComponent(PipelineComponent):
@@ -35,7 +38,7 @@ class DocumentLoaderComponent(PipelineComponent):
         if "file_paths" in data:
             for file_path in data["file_paths"]:
                 if os.path.exists(file_path):
-                    print(f"加载文件: {file_path}")
+                    logger.info(f"加载文件: {file_path}")
                     file_docs = self.loader.load_file(file_path)
                     documents.extend(file_docs)
         
@@ -43,7 +46,7 @@ class DocumentLoaderComponent(PipelineComponent):
         elif "directory_path" in data:
             directory_path = data["directory_path"]
             if os.path.isdir(directory_path):
-                print(f"加载目录: {directory_path}")
+                logger.info(f"加载目录: {directory_path}")
                 glob_pattern = data.get("glob_pattern", "**/*")
                 documents = self.loader.load_directory(directory_path, glob_pattern)
         
@@ -52,12 +55,12 @@ class DocumentLoaderComponent(PipelineComponent):
             config = get_config()
             data_dir = config.get("base.data_dir", "./data")
             if os.path.isdir(data_dir):
-                print(f"从默认数据目录加载: {data_dir}")
+                logger.info(f"从默认数据目录加载: {data_dir}")
                 documents = self.loader.load_from_config()
         
         data["documents"] = documents
         data["document_count"] = len(documents)
-        print(f"总共加载 {len(documents)} 个文档")
+        logger.info(f"总共加载 {len(documents)} 个文档")
         
         return data
     
@@ -97,12 +100,12 @@ class DocumentProcessorComponent(PipelineComponent):
             更新后的字典，添加'processed_documents'字段
         """
         if "documents" not in data or not data["documents"]:
-            print("警告: 没有要处理的文档")
+            logger.warning("警告: 没有要处理的文档")
             data["processed_documents"] = []
             return data
         
         documents = data["documents"]
-        print(f"处理 {len(documents)} 个文档")
+        logger.info(f"处理 {len(documents)} 个文档")
         
         # 处理文档
         processed_docs = self.processor.process_multimodal_documents(documents)
@@ -115,7 +118,7 @@ class DocumentProcessorComponent(PipelineComponent):
         data["processed_document_count"] = len(filtered_docs)
         data["chunk_count"] = len(filtered_docs)
         
-        print(f"处理完成，生成 {len(filtered_docs)} 个文档块")
+        logger.info(f"处理完成，生成 {len(filtered_docs)} 个文档块")
         
         return data
     
@@ -150,12 +153,12 @@ class EmbeddingGeneratorComponent(PipelineComponent):
             更新后的字典，添加'embeddings'字段
         """
         if "processed_documents" not in data or not data["processed_documents"]:
-            print("警告: 没有要生成嵌入的文档")
+            logger.warning("警告: 没有要生成嵌入的文档")
             data["embeddings"] = []
             return data
         
         documents = data["processed_documents"]
-        print(f"为 {len(documents)} 个文档生成嵌入向量")
+        logger.info(f"为 {len(documents)} 个文档生成嵌入向量")
         
         # 提取文本内容
         texts = [doc.page_content for doc in documents]
@@ -174,12 +177,12 @@ class EmbeddingGeneratorComponent(PipelineComponent):
             data["documents_with_embeddings"] = list(valid_docs)
             data["embeddings"] = list(valid_embeddings)
             data["valid_document_count"] = len(valid_docs)
-            print(f"成功生成 {len(valid_embeddings)} 个嵌入向量")
+            logger.info(f"成功生成 {len(valid_embeddings)} 个嵌入向量")
         else:
             data["documents_with_embeddings"] = []
             data["embeddings"] = []
             data["valid_document_count"] = 0
-            print("警告: 无法生成任何嵌入向量")
+            logger.warning("警告: 无法生成任何嵌入向量")
         
         return data
 
@@ -209,10 +212,10 @@ class VectorStoreComponent(PipelineComponent):
         elif "processed_documents" in data:
             documents_to_add = data["processed_documents"]
         else:
-            print("警告: 没有要添加到向量存储的文档")
+            logger.warning("警告: 没有要添加到向量存储的文档")
             return data
         
-        print(f"将 {len(documents_to_add)} 个文档添加到向量存储")
+        logger.info(f"将 {len(documents_to_add)} 个文档添加到向量存储")
         
         # 添加到向量存储
         doc_ids = self.vectorstore_manager.add_documents(documents_to_add)
@@ -226,14 +229,14 @@ class VectorStoreComponent(PipelineComponent):
             "store_type": self.vectorstore_manager.vectorstore_type
         }
         
-        print(f"成功添加 {len(doc_ids)} 个文档到向量存储，当前总文档数: {total_docs}")
+        logger.info(f"成功添加 {len(doc_ids)} 个文档到向量存储，当前总文档数: {total_docs}")
         
         return data
     
     def preprocess(self, data: Dict[str, Any]) -> Dict[str, Any]:
         # 检查是否需要清空向量存储
         if data.get("clear_vectorstore", False):
-            print("清空向量存储")
+            logger.info("清空向量存储")
             self.vectorstore_manager.clear()
         
         return data
@@ -259,7 +262,7 @@ class RetrieverComponent(PipelineComponent):
             更新后的字典，添加'retrieved_documents'字段
         """
         if "query" not in data:
-            print("警告: 检索组件需要查询参数")
+            logger.warning("警告: 检索组件需要查询参数")
             data["retrieved_documents"] = []
             return data
         
@@ -267,7 +270,7 @@ class RetrieverComponent(PipelineComponent):
         k = data.get("k", self.config.get("retrieval.k", 3))
         score_threshold = data.get("score_threshold", self.config.get("retrieval.score_threshold"))
         
-        print(f"执行检索: '{query}'，k={k}")
+        logger.info(f"执行检索: '{query}'，k={k}")
         
         # 执行检索
         if score_threshold is not None:
@@ -296,7 +299,7 @@ class RetrieverComponent(PipelineComponent):
             )
             data["retrieved_documents"] = retrieved_docs
         
-        print(f"检索到 {len(data['retrieved_documents'])} 个相关文档")
+        logger.info(f"检索到 {len(data['retrieved_documents'])} 个相关文档")
         
         return data
 
@@ -321,13 +324,13 @@ class ResponseGeneratorComponent(PipelineComponent):
             更新后的字典，添加'response'字段
         """
         if "query" not in data:
-            print("警告: 响应生成组件需要查询参数")
+            logger.warning("警告: 响应生成组件需要查询参数")
             return data
         
         query = data["query"]
         context_docs = data.get("retrieved_documents", [])
         
-        print(f"生成响应，使用 {len(context_docs)} 个检索到的文档")
+        logger.info(f"生成响应，使用 {len(context_docs)} 个检索到的文档")
         
         # 创建RAG提示并生成响应
         if context_docs:
@@ -340,6 +343,6 @@ class ResponseGeneratorComponent(PipelineComponent):
         data["response"] = response
         data["response_generated"] = True
         
-        print("响应生成完成")
+        logger.info("响应生成完成")
         
         return data
