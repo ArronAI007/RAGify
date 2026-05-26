@@ -35,4 +35,3 @@ Requires-Dist: click; extra == "dev"
 Requires-Dist: tqdm; extra == "dev"
 Requires-Dist: ipython; extra == "dev"
 Dynamic: license-file
-Dynamic: requires-python

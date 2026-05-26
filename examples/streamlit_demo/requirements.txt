@@ -1,0 +1,2 @@
+# 额外依赖 - RAGify Streamlit Demo
+streamlit>=1.28.0

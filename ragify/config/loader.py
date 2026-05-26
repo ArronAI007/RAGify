@@ -3,6 +3,7 @@ import yaml
 from typing import Dict, Any, Optional
 from pydantic_settings import BaseSettings
 from pydantic import Field, validator
+from dotenv import load_dotenv
 
 
 class ConfigLoader:
@@ -11,6 +12,7 @@ class ConfigLoader:
     """
     
     def __init__(self, config_path: str = "./config/config.yaml"):
+        load_dotenv()  # 加载 .env 文件
         self.config_path = config_path
         self.config = self._load_config()
         self._resolve_env_vars()
@@ -108,7 +110,8 @@ class RAGifySettings(BaseSettings):
     
     model_config = {
         "env_file": ".env",
-        "case_sensitive": False
+        "case_sensitive": False,
+        "extra": "ignore"
     }
 
 

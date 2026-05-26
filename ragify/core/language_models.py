@@ -32,21 +32,29 @@ class LanguageModelManager:
         初始化语言模型
         """
         try:
-            if self.llm_provider == "openai":
+            if self.llm_provider in ("openai", "dashscope"):
                 # 获取API密钥
-                api_key = self.config.get("llm.api_key")
+                import os
+                api_key_env = self.config.get("llm.api_key_env")
+                api_key = os.environ.get(api_key_env) if api_key_env else None
+                if not api_key:
+                    api_key = self.config.get("llm.api_key")
+                if not api_key:
+                    api_key = os.environ.get("DASHSCOPE_API_KEY") or os.environ.get("OPENAI_API_KEY")
+                base_url = self.config.get("llm.base_url")
                 return ChatOpenAI(
                     model=self.llm_model,
                     temperature=self.temperature,
                     max_tokens=self.max_tokens,
                     api_key=api_key,
+                    base_url=base_url,
                     streaming=True
                 )
-            
+
             elif self.llm_provider == "anthropic":
                 # Anthropic Claude
                 try:
-                    api_key = self.config.get("llm.api_key")
+                    api_key = self.config.get("llm.api_key_env") or self.config.get("llm.api_key")
                     return ChatAnthropic(
                         model=self.llm_model,
                         temperature=self.temperature,

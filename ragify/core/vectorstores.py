@@ -52,17 +52,24 @@ class VectorStoreManager:
             
             elif self.vectorstore_type == "faiss":
                 # FAISS向量存储
-                try:
-                    vectorstore = FAISS.load_local(
-                        self.persist_directory,
-                        self.embedding_generator.embeddings
-                    )
-                    logger.info("成功加载现有的FAISS向量存储")
-                    return vectorstore
-                except Exception:
-                    # 创建新的FAISS存储
-                    logger.info("创建新的FAISS向量存储")
-                    # FAISS需要先有文档才能创建，这里返回None
+                import os
+                index_file = os.path.join(self.persist_directory, "index.faiss")
+                pkl_file = os.path.join(self.persist_directory, "index.pkl")
+                if os.path.exists(index_file) and os.path.exists(pkl_file):
+                    try:
+                        vectorstore = FAISS.load_local(
+                            self.persist_directory,
+                            self.embedding_generator.embeddings,
+                            allow_dangerous_deserialization=True
+                        )
+                        logger.info("成功加载现有的FAISS向量存储")
+                        return vectorstore
+                    except Exception as e:
+                        logger.error(f"加载FAISS向量存储失败: {e}")
+                        logger.info("将创建新的FAISS向量存储")
+                        return None
+                else:
+                    logger.info("FAISS索引文件不存在，将创建新的向量存储")
                     return None
             
             else:
@@ -114,10 +121,12 @@ class VectorStoreManager:
                 else:
                     # 添加到现有FAISS
                     self.vectorstore.add_documents(list(valid_docs))
-                
+
                 # 保存FAISS索引
                 self.vectorstore.save_local(self.persist_directory)
-            
+                logger.info(f"成功添加 {len(valid_docs)} 个文档到FAISS向量存储")
+                return list(range(len(valid_docs)))
+
             else:
                 # Chroma或其他
                 doc_ids = self.vectorstore.add_documents(list(valid_docs))

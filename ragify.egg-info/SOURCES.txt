@@ -1,7 +1,6 @@
 LICENSE
 README.md
 pyproject.toml
-setup.py
 ragify/__init__.py
 ragify.egg-info/PKG-INFO
 ragify.egg-info/SOURCES.txt
@@ -32,4 +31,6 @@ ragify/models/__init__.py
 ragify/utils/__init__.py
 tests/test_agent.py
 tests/test_config.py
+tests/test_core.py
 tests/test_pipeline.py
+tests/test_rag_agent.py

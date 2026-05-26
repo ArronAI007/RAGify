@@ -10,25 +10,27 @@ base:
 
 # 语言模型配置
 llm:
-  provider: "openai"
-  model_name: "gpt-4"
+  provider: "dashscope"
+  model_name: "deepseek-v3.2"
+  base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1"
   temperature: 0.7
   max_tokens: 1024
-  api_key_env: "OPENAI_API_KEY"
+  api_key_env: "DASHSCOPE_API_KEY"
 
 # 嵌入模型配置
 embeddings:
-  provider: "openai"
-  model_name: "text-embedding-3-small"
-  dimensions: 1536
-  api_key_env: "OPENAI_API_KEY"
+  provider: "dashscope"
+  model_name: "text-embedding-v4"
+  base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1"
+  dimensions: 1024
+  api_key_env: "DASHSCOPE_API_KEY"
 
 # 向量数据库配置
 vectorstore:
-  type: "chromadb"
+  type: "faiss"
   persist_directory: "./vectorstore"
   collection_name: "ragify_documents"
-  embedding_dimensions: 1536
+  embedding_dimensions: 1024
 
 # 多模态配置
 multimodal:

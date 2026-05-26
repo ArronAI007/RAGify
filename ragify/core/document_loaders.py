@@ -51,8 +51,12 @@ except ImportError as e:
     
     class DirectoryLoader:
         def __init__(self, *args, **kwargs):
-            self.directory_path = args[0] if args else kwargs.get('path', '.')
+            self.directory_path = args[0] if args else kwargs.get('directory_path', kwargs.get('path', '.'))
             self.glob = kwargs.get('glob', '**/*')
+            self.loader_kwargs = kwargs.get('loader_kwargs', {})
+            self.loaders = kwargs.get('loaders', {})
+            self.show_progress = kwargs.get('show_progress', False)
+            self.use_multithreading = kwargs.get('use_multithreading', True)
         def load(self):
             import glob
             files = glob.glob(os.path.join(self.directory_path, self.glob), recursive=True)
@@ -61,10 +65,13 @@ except ImportError as e:
             for file in files:
                 try:
                     ext = os.path.splitext(file)[1].lower()
-                    if ext == '.txt':
+                    if ext in self.loaders:
+                        loader_cls, loader_kwargs = self.loaders[ext]
+                        loader = loader_cls(file, **loader_kwargs)
+                    elif ext == '.txt':
                         loader = TextLoader(file)
                     else:
-                        continue  # 简化处理，只处理txt文件
+                        continue  # 简化处理，只处理已知类型
                     documents.extend(loader.load())
                 except Exception as e:
                     logger.error(f"无法加载文件 {file}: {e}")
@@ -128,45 +135,34 @@ class MultiModalDocumentLoader:
         """
         if not os.path.isdir(directory_path):
             raise NotADirectoryError(f"目录不存在: {directory_path}")
-        
-        # 配置加载器映射
-        loader_kwargs = {}
-        
-        # 为图像设置特殊处理
-        if self.image_enabled and self.multimodal_enabled:
-            image_loader_cls = UnstructuredImageLoader
-        else:
-            image_loader_cls = None
-        
-        # 创建目录加载器
-        loader = DirectoryLoader(
-            directory_path,
-            glob=glob_pattern,
-            show_progress=True,
-            use_multithreading=True,
-            loader_kwargs=loader_kwargs,
-            # 设置不同文件类型的加载器
-            loaders={
-                ".txt": (TextLoader, {"encoding": "utf-8"}),
-                ".pdf": (PDFLoader, {}),  # 使用PyPDF加载器
-                ".docx": (Docx2txtLoader, {}),
-                ".doc": (Docx2txtLoader, {})
-            }
-        )
-        
-        documents = loader.load()
 
-        # 创建新的 Document 对象以避免修改原始对象
-        result_docs = []
-        for doc in documents:
-            new_metadata = doc.metadata.copy()
-            if "source" in new_metadata:
-                file_path = new_metadata["source"]
-                file_ext = os.path.splitext(file_path)[1].lower()
-                new_metadata["file_type"] = file_ext
-            result_docs.append(Document(page_content=doc.page_content, metadata=new_metadata))
+        # 手动遍历文件并加载
+        import glob
+        files = glob.glob(os.path.join(directory_path, glob_pattern), recursive=True)
+        files = [f for f in files if os.path.isfile(f)]
 
-        return result_docs
+        documents = []
+        for file_path in files:
+            try:
+                ext = os.path.splitext(file_path)[1].lower()
+                if ext == '.txt':
+                    loader = TextLoader(file_path, encoding="utf-8")
+                elif ext == '.pdf':
+                    loader = PDFLoader(file_path)
+                elif ext == '.docx' or ext == '.doc':
+                    loader = Docx2txtLoader(file_path)
+                else:
+                    continue  # 跳过不支持的文件类型
+                docs = loader.load()
+                for doc in docs:
+                    new_metadata = doc.metadata.copy()
+                    new_metadata["file_path"] = file_path
+                    new_metadata["file_type"] = ext
+                    documents.append(Document(page_content=doc.page_content, metadata=new_metadata))
+            except Exception as e:
+                logger.error(f"无法加载文件 {file_path}: {e}")
+
+        return documents
     
     def load_from_config(self) -> List[Document]:
         """
