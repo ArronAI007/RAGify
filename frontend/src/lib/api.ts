@@ -134,6 +134,16 @@ export async function getDocuments(kbId?: string): Promise<DocumentList> {
   return fetchJSON<DocumentList>(`${BASE}/documents${params}`);
 }
 
+export async function deleteDocument(
+  source: string,
+  kbId: string
+): Promise<{ success: boolean }> {
+  return fetchJSON<{ success: boolean }>(`${BASE}/documents`, {
+    method: "DELETE",
+    body: JSON.stringify({ kb_id: kbId, source }),
+  });
+}
+
 // ── File Upload ───────────────────────────────────────────────────
 
 export async function uploadFiles(

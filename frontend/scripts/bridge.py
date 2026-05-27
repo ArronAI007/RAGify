@@ -209,6 +209,44 @@ def handle_list_docs(data: dict) -> dict:
     return {"documents": sources, "total": len(sources)}
 
 
+def handle_delete_doc(data: dict) -> dict:
+    kb_id = data.get("kb_id")
+    source = data.get("source", "").strip()
+    if not source:
+        raise ValueError("缺少 source 参数")
+
+    _resolve_kb_path(kb_id)
+
+    # Delete the physical file
+    deleted = False
+    for candidate in (source, os.path.join(PROJECT_ROOT, "data", kb_id, os.path.basename(source))):
+        if os.path.isfile(candidate):
+            os.remove(candidate)
+            deleted = True
+
+    # Clear and re-index remaining files
+    from ragify.core.vectorstores import VectorStoreManager
+
+    vm = VectorStoreManager()
+    vm.clear()
+
+    kb_data_dir = os.path.join(PROJECT_ROOT, "data", kb_id)
+    remaining: list[str] = []
+    if os.path.isdir(kb_data_dir):
+        remaining = [
+            os.path.join(kb_data_dir, f)
+            for f in os.listdir(kb_data_dir)
+            if os.path.isfile(os.path.join(kb_data_dir, f))
+        ]
+    if remaining:
+        from ragify.mcp import IndexingPipeline
+
+        pipeline = IndexingPipeline()
+        pipeline.run({"file_paths": remaining})
+
+    return {"success": True, "deleted": deleted}
+
+
 def handle_health(_data: dict) -> dict:
     from ragify.config import get_config
 
@@ -232,6 +270,7 @@ HANDLERS = {
     "list_kbs": handle_list_kbs,
     "create_kb": handle_create_kb,
     "delete_kb": handle_delete_kb,
+    "delete_doc": handle_delete_doc,
 }
 
 
