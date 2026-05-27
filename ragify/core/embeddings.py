@@ -24,13 +24,20 @@ class DashScopeEmbeddings(Embeddings):
         )
 
     def embed_documents(self, texts: List[str]) -> List[List[float]]:
-        response = self.client.post('/embeddings', json={
-            'model': self.model,
-            'input': texts
-        })
-        data = response.json()
-        embeddings = sorted(data['data'], key=lambda x: x['index'])
-        return [e['embedding'] for e in embeddings]
+        all_embeddings: List[List[float]] = []
+        batch_size = 10  # DashScope text-embedding-v4 max batch size
+        for i in range(0, len(texts), batch_size):
+            batch = texts[i:i + batch_size]
+            response = self.client.post('/embeddings', json={
+                'model': self.model,
+                'input': batch
+            })
+            data = response.json()
+            if 'data' not in data:
+                raise RuntimeError(f"Embedding API error: {data}")
+            embeddings = sorted(data['data'], key=lambda x: x['index'])
+            all_embeddings.extend(e['embedding'] for e in embeddings)
+        return all_embeddings
 
     def embed_query(self, text: str) -> List[float]:
         return self.embed_documents([text])[0]

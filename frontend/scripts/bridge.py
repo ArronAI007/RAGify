@@ -125,15 +125,22 @@ def handle_delete_kb(data: dict) -> dict:
 # ── Core handlers (kb-aware via _resolve_kb_path) ──────────────────
 
 def handle_index(data: dict) -> dict:
-    _resolve_kb_path(data.get("kb_id"))
+    kb_id = data.get("kb_id")
+    _resolve_kb_path(kb_id)
     from ragify.mcp import IndexingPipeline
 
     pipeline = IndexingPipeline()
     payload: dict[str, object] = {}
-    if "directory_path" in data:
+
+    if data.get("directory_path"):
         payload["directory_path"] = data["directory_path"]
-    if "file_paths" in data:
+    elif data.get("file_paths"):
         payload["file_paths"] = data["file_paths"]
+    elif kb_id:
+        kb_data_dir = os.path.join(PROJECT_ROOT, "data", kb_id)
+        if os.path.isdir(kb_data_dir):
+            payload["directory_path"] = kb_data_dir
+
     if "clear_vectorstore" in data:
         payload["clear_vectorstore"] = data["clear_vectorstore"]
 

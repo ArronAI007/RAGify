@@ -98,16 +98,15 @@ class MultiModalDocumentLoader:
         加载单个文件
         """
         file_ext = os.path.splitext(file_path)[1].lower()
-        
+
         if not os.path.exists(file_path):
             raise FileNotFoundError(f"文件不存在: {file_path}")
-        
+
         # 根据文件类型选择合适的加载器
         if file_ext == ".txt":
             loader = TextLoader(file_path, encoding="utf-8")
         elif file_ext == ".pdf":
-            # 使用PyPDF加载器（LangChain 1.0需要显式指定）
-            loader = PDFLoader(file_path)
+            return self._load_pdf(file_path)
         elif file_ext == ".docx" or file_ext == ".doc":
             loader = Docx2txtLoader(file_path)
         elif file_ext in [".jpg", ".jpeg", ".png", ".gif"] and self.image_enabled and self.multimodal_enabled and UnstructuredImageLoader:
@@ -115,7 +114,7 @@ class MultiModalDocumentLoader:
         else:
             # 使用通用加载器作为后备
             loader = UnstructuredFileLoader(file_path)
-        
+
         documents = loader.load()
 
         # 创建新的 Document 对象以避免修改原始对象
@@ -128,6 +127,39 @@ class MultiModalDocumentLoader:
             result_docs.append(Document(page_content=doc.page_content, metadata=new_metadata))
 
         return result_docs
+
+    def _load_pdf(self, file_path: str) -> List[Document]:
+        """Load PDF using pdftext (MinerU backend) with pypdf fallback."""
+        content = None
+
+        # Try pdftext first — better layout preservation
+        try:
+            from pdftext.extraction import plain_text_output
+            content = plain_text_output(file_path, sort=True)
+            if content and content.strip():
+                logger.info(f"pdftext loaded: {file_path}")
+        except Exception as e:
+            logger.debug(f"pdftext failed, falling back to pypdf: {e}")
+
+        # Fallback to pypdf
+        if not content or not content.strip():
+            try:
+                loader = PDFLoader(file_path)
+                docs = loader.load()
+                content = "\n\n".join(d.page_content for d in docs)
+                logger.info(f"pypdf loaded: {file_path}")
+            except Exception as e:
+                raise RuntimeError(f"无法解析 PDF 文件 {file_path}: {e}") from e
+
+        doc = Document(
+            page_content=content,
+            metadata={
+                "file_path": file_path,
+                "file_type": ".pdf",
+                "source": file_path,
+            },
+        )
+        return [doc]
     
     def load_directory(self, directory_path: str, glob_pattern: str = "**/*") -> List[Document]:
         """
@@ -148,7 +180,10 @@ class MultiModalDocumentLoader:
                 if ext == '.txt':
                     loader = TextLoader(file_path, encoding="utf-8")
                 elif ext == '.pdf':
-                    loader = PDFLoader(file_path)
+                    docs = self._load_pdf(file_path)
+                    for doc in docs:
+                        documents.append(doc)
+                    continue
                 elif ext == '.docx' or ext == '.doc':
                     loader = Docx2txtLoader(file_path)
                 else:
