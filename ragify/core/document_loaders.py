@@ -109,6 +109,8 @@ class MultiModalDocumentLoader:
             return self._load_pdf(file_path)
         elif file_ext == ".docx" or file_ext == ".doc":
             loader = Docx2txtLoader(file_path)
+        elif file_ext == ".pptx":
+            return self._load_pptx(file_path)
         elif file_ext in [".jpg", ".jpeg", ".png", ".gif"] and self.image_enabled and self.multimodal_enabled and UnstructuredImageLoader:
             loader = UnstructuredImageLoader(file_path)
         else:
@@ -160,6 +162,46 @@ class MultiModalDocumentLoader:
             },
         )
         return [doc]
+
+    def _load_pptx(self, file_path: str) -> List[Document]:
+        """Load PPTX using python-pptx, extracting text from all slides."""
+        from pptx import Presentation
+
+        prs = Presentation(file_path)
+        slides_text: list[str] = []
+        for i, slide in enumerate(prs.slides, 1):
+            lines: list[str] = []
+            for shape in slide.shapes:
+                if shape.has_text_frame:
+                    for para in shape.text_frame.paragraphs:
+                        text = para.text.strip()
+                        if text:
+                            lines.append(text)
+                if shape.has_table:
+                    table = shape.table
+                    for row in table.rows:
+                        row_text = " | ".join(
+                            cell.text.strip() for cell in row.cells if cell.text.strip()
+                        )
+                        if row_text:
+                            lines.append(row_text)
+            if lines:
+                slides_text.append(f"[Slide {i}]\n" + "\n".join(lines))
+
+        if not slides_text:
+            raise RuntimeError(f"PPTX 文件中未找到可提取的文本: {file_path}")
+
+        content = "\n\n".join(slides_text)
+        doc = Document(
+            page_content=content,
+            metadata={
+                "file_path": file_path,
+                "file_type": ".pptx",
+                "source": file_path,
+                "slide_count": len(prs.slides),
+            },
+        )
+        return [doc]
     
     def load_directory(self, directory_path: str, glob_pattern: str = "**/*") -> List[Document]:
         """
@@ -186,6 +228,11 @@ class MultiModalDocumentLoader:
                     continue
                 elif ext == '.docx' or ext == '.doc':
                     loader = Docx2txtLoader(file_path)
+                elif ext == '.pptx':
+                    docs = self._load_pptx(file_path)
+                    for doc in docs:
+                        documents.append(doc)
+                    continue
                 else:
                     continue  # 跳过不支持的文件类型
                 docs = loader.load()
