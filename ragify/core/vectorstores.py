@@ -240,6 +240,49 @@ class VectorStoreManager:
             logger.error(f"清空向量存储时出错: {e}")
             return False
     
+    def get_sources(self) -> list[dict[str, str]]:
+        """获取已索引文档的来源信息"""
+        try:
+            if not self.vectorstore:
+                return []
+            if self.vectorstore_type == "faiss":
+                sources: dict[str, dict[str, str]] = {}
+                for doc_id in self.vectorstore.index_to_docstore_id.values():
+                    doc = self.vectorstore.docstore.search(doc_id)
+                    if doc is None:
+                        continue
+                    src = doc.metadata.get("source", "")
+                    if src and src not in sources:
+                        sources[src] = {
+                            "name": src.split("/")[-1],
+                            "source": src,
+                            "file_type": doc.metadata.get("file_type", ""),
+                            "chunks": 1,
+                        }
+                    elif src in sources:
+                        sources[src]["chunks"] += 1
+                return list(sources.values())
+            elif self.vectorstore_type == "chromadb":
+                collection = self.vectorstore.get()
+                sources = {}
+                metadatas = collection.get("metadatas", [])
+                for meta in metadatas or []:
+                    src = meta.get("source", "")
+                    if src and src not in sources:
+                        sources[src] = {
+                            "name": src.split("/")[-1],
+                            "source": src,
+                            "file_type": meta.get("file_type", ""),
+                            "chunks": 1,
+                        }
+                    elif src in sources:
+                        sources[src]["chunks"] += 1
+                return list(sources.values())
+            return []
+        except Exception as e:
+            logger.error(f"获取文档来源时出错: {e}")
+            return []
+
     def get_document_count(self) -> int:
         """
         获取向量存储中的文档数量
