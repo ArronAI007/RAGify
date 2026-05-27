@@ -6,6 +6,7 @@ import type {
   DocumentList,
   KnowledgeBase,
   KBListResponse,
+  ChunkListResponse,
 } from "@/types";
 
 const BASE = "/api";
@@ -166,4 +167,26 @@ export async function uploadFiles(
     throw new Error(body || `${res.status} ${res.statusText}`);
   }
   return res.json();
+}
+
+// ── Chunks ──────────────────────────────────────────────────────
+
+export async function getChunks(
+  source: string,
+  kbId?: string
+): Promise<ChunkListResponse> {
+  const params = new URLSearchParams({ source });
+  if (kbId) params.set("kb_id", kbId);
+  return fetchJSON<ChunkListResponse>(`${BASE}/chunks?${params}`);
+}
+
+export async function updateChunk(
+  chunkId: string,
+  content: string,
+  kbId?: string
+): Promise<{ success: boolean }> {
+  return fetchJSON<{ success: boolean }>(`${BASE}/chunks`, {
+    method: "PUT",
+    body: JSON.stringify({ chunk_id: chunkId, content, kb_id: kbId }),
+  });
 }

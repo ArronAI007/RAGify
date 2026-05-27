@@ -285,23 +285,89 @@ class VectorStoreManager:
 
     def get_document_count(self) -> int:
         """
-        获取向量存储中的文档数量
+        获取向量存储中的唯一源文件数量（非分块数）
         """
         try:
-            # 这个功能在不同向量存储中实现方式不同
-            # 这里使用简单的方法获取
-            if self.vectorstore_type == "chromadb":
-                # ChromaDB
-                collection = self.vectorstore.get()
-                return len(collection.get("ids", []))
-            elif self.vectorstore_type == "faiss":
-                # FAISS - 只能通过搜索获取近似数量
-                # 这不是精确计数，但在大多数情况下足够
-                if self.vectorstore:
-                    return len(self.vectorstore.index_to_docstore_id)
-                return 0
-            else:
-                return 0
+            sources = self.get_sources()
+            return len(sources)
         except Exception as e:
             logger.error(f"获取文档数量时出错: {e}")
             return 0
+
+    def get_chunks_by_source(self, source: str) -> list[dict]:
+        """获取指定源文件的所有分块内容及ID"""
+        chunks: list[dict] = []
+        try:
+            if not self.vectorstore:
+                return chunks
+            if self.vectorstore_type == "faiss":
+                for idx, doc_id in self.vectorstore.index_to_docstore_id.items():
+                    doc = self.vectorstore.docstore.search(doc_id)
+                    if doc is None:
+                        continue
+                    if doc.metadata.get("source") == source:
+                        chunks.append({
+                            "chunk_id": str(idx),
+                            "content": doc.page_content,
+                            "metadata": {
+                                "source": doc.metadata.get("source", ""),
+                                "file_type": doc.metadata.get("file_type", ""),
+                            },
+                        })
+            elif self.vectorstore_type == "chromadb":
+                collection = self.vectorstore.get()
+                ids_list = collection.get("ids", [])
+                docs_list = collection.get("documents", [])
+                metas = collection.get("metadatas", [])
+                for i, doc_id in enumerate(ids_list):
+                    meta = metas[i] if metas and i < len(metas) else {}
+                    if meta.get("source") == source:
+                        chunks.append({
+                            "chunk_id": str(doc_id),
+                            "content": docs_list[i] if docs_list else "",
+                            "metadata": {
+                                "source": meta.get("source", ""),
+                                "file_type": meta.get("file_type", ""),
+                            },
+                        })
+            return chunks
+        except Exception as e:
+            logger.error(f"获取分块时出错: {e}")
+            return chunks
+
+    def update_chunk_content(self, chunk_id: str, new_content: str) -> bool:
+        """更新指定分块的内容，重新嵌入并保存"""
+        try:
+            if not self.vectorstore or self.vectorstore_type != "faiss":
+                return False
+
+            idx = int(chunk_id)
+            if idx not in self.vectorstore.index_to_docstore_id:
+                return False
+
+            docstore_id = self.vectorstore.index_to_docstore_id[idx]
+            old_doc = self.vectorstore.docstore.search(docstore_id)
+            if old_doc is None:
+                return False
+
+            meta = old_doc.metadata.copy()
+
+            # Delete old vector by docstore UUID
+            self.vectorstore.delete([docstore_id])
+
+            # Generate new embedding
+            embedding = self.embedding_generator.generate_embeddings([new_content])
+            if not embedding or not embedding[0]:
+                return False
+
+            # Re-add with same metadata
+            self.vectorstore.add_embeddings(
+                [(new_content, embedding[0])],
+                [meta],
+            )
+            self.vectorstore.save_local(self.persist_directory)
+            logger.info(f"更新分块 {chunk_id} 成功")
+            return True
+        except Exception as e:
+            logger.error(f"更新分块时出错: {e}")
+            return False

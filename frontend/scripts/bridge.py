@@ -254,6 +254,37 @@ def handle_delete_doc(data: dict) -> dict:
     return {"success": True, "deleted": deleted}
 
 
+def handle_list_chunks(data: dict) -> dict:
+    kb_id = data.get("kb_id")
+    source = data.get("source", "").strip()
+    if not source:
+        raise ValueError("缺少 source 参数")
+
+    if kb_id:
+        _resolve_kb_path(kb_id)
+    from ragify.core.vectorstores import VectorStoreManager
+
+    vm = VectorStoreManager()
+    chunks = vm.get_chunks_by_source(source)
+    return {"chunks": chunks, "total": len(chunks)}
+
+
+def handle_update_chunk(data: dict) -> dict:
+    kb_id = data.get("kb_id")
+    chunk_id = str(data.get("chunk_id", ""))
+    new_content = data.get("content", "")
+    if not chunk_id:
+        raise ValueError("缺少 chunk_id 参数")
+
+    if kb_id:
+        _resolve_kb_path(kb_id)
+    from ragify.core.vectorstores import VectorStoreManager
+
+    vm = VectorStoreManager()
+    ok = vm.update_chunk_content(chunk_id, new_content)
+    return {"success": ok}
+
+
 def handle_health(_data: dict) -> dict:
     from ragify.config import get_config
 
@@ -278,6 +309,8 @@ HANDLERS = {
     "create_kb": handle_create_kb,
     "delete_kb": handle_delete_kb,
     "delete_doc": handle_delete_doc,
+    "list_chunks": handle_list_chunks,
+    "update_chunk": handle_update_chunk,
 }
 
 

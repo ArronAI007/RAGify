@@ -5,7 +5,8 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   Upload, FileText, Trash2, Loader2, Plus, Database,
   FileIcon, X, BookOpen, Layers, FolderOpen, HardDrive,
-  Hash, Calendar, ArrowRight, Info,
+  Hash, Calendar, ArrowRight, Info, ChevronDown, ChevronRight,
+  Pencil, Check,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -26,9 +27,9 @@ import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import {
   indexFiles, clearIndex, getStats, uploadFiles, getDocuments,
-  listKBs, createKB, deleteKB, deleteDocument,
+  listKBs, createKB, deleteKB, deleteDocument, getChunks, updateChunk,
 } from "@/lib/api";
-import type { SystemStats, DocumentInfo, KnowledgeBase } from "@/types";
+import type { SystemStats, DocumentInfo, KnowledgeBase, ChunkInfo } from "@/types";
 
 const ALLOWED_EXTENSIONS = [
   ".pdf", ".docx", ".doc", ".txt", ".md", ".html", ".htm",
@@ -64,6 +65,12 @@ export default function KnowledgeBasePage() {
   const [indexing, setIndexing] = useState(false);
   const [clearing, setClearing] = useState(false);
   const [deletingDoc, setDeletingDoc] = useState<string | null>(null);
+  const [expandedDoc, setExpandedDoc] = useState<string | null>(null);
+  const [chunks, setChunks] = useState<ChunkInfo[]>([]);
+  const [chunksLoading, setChunksLoading] = useState(false);
+  const [editingChunkId, setEditingChunkId] = useState<string | null>(null);
+  const [editContent, setEditContent] = useState("");
+  const [savingChunk, setSavingChunk] = useState(false);
   const [progress, setProgress] = useState(0);
   const [dragOver, setDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -197,6 +204,54 @@ export default function KnowledgeBasePage() {
     }
   };
 
+  const handleToggleExpand = async (source: string) => {
+    if (expandedDoc === source) {
+      setExpandedDoc(null);
+      setChunks([]);
+      return;
+    }
+    setExpandedDoc(source);
+    setChunksLoading(true);
+    setEditingChunkId(null);
+    try {
+      const res = await getChunks(source, selectedKBId ?? undefined);
+      setChunks(res.chunks);
+    } catch {
+      toast.error("加载分块失败");
+    } finally {
+      setChunksLoading(false);
+    }
+  };
+
+  const handleStartEdit = (chunk: ChunkInfo) => {
+    setEditingChunkId(chunk.chunk_id);
+    setEditContent(chunk.content);
+  };
+
+  const handleCancelEdit = () => {
+    setEditingChunkId(null);
+    setEditContent("");
+  };
+
+  const handleSaveChunk = async (chunkId: string) => {
+    if (!editContent.trim()) return;
+    setSavingChunk(true);
+    try {
+      await updateChunk(chunkId, editContent, selectedKBId ?? undefined);
+      setEditingChunkId(null);
+      toast.success("分块已更新");
+      // Refetch — FAISS renumbers indices after delete+add
+      if (expandedDoc) {
+        const res = await getChunks(expandedDoc, selectedKBId ?? undefined);
+        setChunks(res.chunks);
+      }
+    } catch (e) {
+      toast.error("更新失败", { description: e instanceof Error ? e.message : "请重试" });
+    } finally {
+      setSavingChunk(false);
+    }
+  };
+
   const handleIndex = async () => {
     if (!selectedKBId) return;
     setIndexing(true);
@@ -320,11 +375,6 @@ export default function KnowledgeBasePage() {
             </SelectContent>
           </Select>
 
-          {selectedKB?.description && (
-            <span className="hidden text-sm text-muted-foreground xl:inline">
-              — {selectedKB.description}
-            </span>
-          )}
         </div>
 
         <div className="flex items-center gap-2">
@@ -589,40 +639,133 @@ export default function KnowledgeBasePage() {
                 </div>
               ) : documents.length > 0 ? (
                 <div className="space-y-2 pr-1">
-                  {documents.map((doc, i) => (
-                    <motion.div
-                      key={doc.source}
-                      initial={{ opacity: 0, x: 12 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      transition={{ delay: i * 0.04 }}
-                      className="group flex items-center gap-4 rounded-xl bg-background/40 px-4 py-3.5 transition-colors hover:bg-background/80"
-                    >
-                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/5">
-                        <FileText className="h-4 w-4 text-primary/60" />
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <p className="text-sm font-semibold truncate">{doc.name}</p>
-                        <div className="mt-0.5 flex items-center gap-2 text-xs text-muted-foreground">
-                          <FolderOpen className="h-3 w-3 shrink-0" />
-                          <span className="truncate">{doc.source.split("/").slice(-2).join("/")}</span>
-                        </div>
-                      </div>
-                      <Badge variant="secondary" className="shrink-0 text-xs font-medium">
-                        {doc.chunks} 分块
-                      </Badge>
-                      <button
-                        onClick={(e) => { e.stopPropagation(); handleDeleteDoc(doc.source); }}
-                        disabled={deletingDoc === doc.source}
-                        className="shrink-0 rounded-lg p-2 text-muted-foreground/40 opacity-0 transition-all hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100 disabled:opacity-100"
+                  {documents.map((doc, i) => {
+                    const isExpanded = expandedDoc === doc.source;
+                    return (
+                      <motion.div
+                        key={doc.source}
+                        initial={{ opacity: 0, x: 12 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        transition={{ delay: i * 0.04 }}
                       >
-                        {deletingDoc === doc.source ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : (
-                          <Trash2 className="h-4 w-4" />
-                        )}
-                      </button>
-                    </motion.div>
-                  ))}
+                        <div
+                          className="group flex cursor-pointer items-center gap-3 rounded-xl bg-background/40 px-4 py-3.5 transition-colors hover:bg-background/80"
+                          onClick={() => handleToggleExpand(doc.source)}
+                        >
+                          <div className="shrink-0">
+                            {isExpanded ? (
+                              <ChevronDown className="h-4 w-4 text-primary/60" />
+                            ) : (
+                              <ChevronRight className="h-4 w-4 text-muted-foreground/40" />
+                            )}
+                          </div>
+                          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/5">
+                            <FileText className="h-4 w-4 text-primary/60" />
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <p className="text-sm font-semibold truncate">{doc.name}</p>
+                            <div className="mt-0.5 flex items-center gap-2 text-xs text-muted-foreground">
+                              <FolderOpen className="h-3 w-3 shrink-0" />
+                              <span className="truncate">{doc.source.split("/").slice(-2).join("/")}</span>
+                            </div>
+                          </div>
+                          <Badge variant="secondary" className="shrink-0 text-xs font-medium">
+                            {doc.chunks} 分块
+                          </Badge>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); handleDeleteDoc(doc.source); }}
+                            disabled={deletingDoc === doc.source}
+                            className="shrink-0 rounded-lg p-2 text-muted-foreground/40 opacity-0 transition-all hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100 disabled:opacity-100"
+                          >
+                            {deletingDoc === doc.source ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <Trash2 className="h-4 w-4" />
+                            )}
+                          </button>
+                        </div>
+
+                        {/* Chunk list — shown when expanded */}
+                        <AnimatePresence>
+                          {isExpanded && (
+                            <motion.div
+                              initial={{ height: 0, opacity: 0 }}
+                              animate={{ height: "auto", opacity: 1 }}
+                              exit={{ height: 0, opacity: 0 }}
+                              className="overflow-hidden"
+                            >
+                              <div className="ml-9 mt-1 space-y-1.5 pb-1">
+                                {chunksLoading ? (
+                                  <div className="space-y-2 py-2">
+                                    {[1, 2, 3].map((j) => (
+                                      <Skeleton key={j} className="h-12 w-full rounded-lg" />
+                                    ))}
+                                  </div>
+                                ) : chunks.length === 0 ? (
+                                  <p className="py-3 text-center text-xs text-muted-foreground">
+                                    该文档暂无分块数据
+                                  </p>
+                                ) : (
+                                  chunks.map((chunk, ci) => (
+                                    <div
+                                      key={chunk.chunk_id}
+                                      className="rounded-lg bg-background/60 px-3.5 py-2.5"
+                                    >
+                                      {editingChunkId === chunk.chunk_id ? (
+                                        <div className="space-y-2.5">
+                                          <Textarea
+                                            value={editContent}
+                                            onChange={(e) => setEditContent(e.target.value)}
+                                            className="min-h-[80px] text-sm"
+                                            autoFocus
+                                          />
+                                          <div className="flex items-center gap-2">
+                                            <Button
+                                              size="sm"
+                                              onClick={() => handleSaveChunk(chunk.chunk_id)}
+                                              disabled={savingChunk || !editContent.trim()}
+                                            >
+                                              {savingChunk && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
+                                              <Check className="mr-1.5 h-3.5 w-3.5" />
+                                              保存
+                                            </Button>
+                                            <Button
+                                              size="sm"
+                                              variant="ghost"
+                                              onClick={handleCancelEdit}
+                                              disabled={savingChunk}
+                                            >
+                                              <X className="mr-1.5 h-3.5 w-3.5" />
+                                              取消
+                                            </Button>
+                                          </div>
+                                        </div>
+                                      ) : (
+                                        <div className="flex items-start gap-3">
+                                          <span className="mt-0.5 shrink-0 text-[10px] font-mono font-medium text-muted-foreground bg-muted/50 rounded px-1.5 py-0.5">
+                                            #{ci + 1}
+                                          </span>
+                                          <p className="flex-1 text-sm leading-relaxed text-muted-foreground line-clamp-3">
+                                            {chunk.content}
+                                          </p>
+                                          <button
+                                            onClick={() => handleStartEdit(chunk)}
+                                            className="shrink-0 rounded-md p-1.5 text-muted-foreground/40 hover:bg-primary/10 hover:text-primary transition-colors"
+                                          >
+                                            <Pencil className="h-3.5 w-3.5" />
+                                          </button>
+                                        </div>
+                                      )}
+                                    </div>
+                                  ))
+                                )}
+                              </div>
+                            </motion.div>
+                          )}
+                        </AnimatePresence>
+                      </motion.div>
+                    );
+                  })}
                 </div>
               ) : (
                 <div className="flex flex-col items-center justify-center py-20 text-center">

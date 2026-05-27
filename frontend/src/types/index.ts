@@ -57,6 +57,20 @@ export interface DocumentInfo {
   chunks: number;
 }
 
+export interface ChunkInfo {
+  chunk_id: string;
+  content: string;
+  metadata: {
+    source: string;
+    file_type: string;
+  };
+}
+
+export interface ChunkListResponse {
+  chunks: ChunkInfo[];
+  total: number;
+}
+
 export interface DocumentList {
   documents: DocumentInfo[];
   total: number;
