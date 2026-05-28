@@ -103,7 +103,7 @@ class MultiModalDocumentLoader:
             raise FileNotFoundError(f"文件不存在: {file_path}")
 
         # 根据文件类型选择合适的加载器
-        if file_ext == ".txt":
+        if file_ext in [".txt", ".md", ".html", ".htm", ".csv", ".json", ".xml"]:
             loader = TextLoader(file_path, encoding="utf-8")
         elif file_ext == ".pdf":
             return self._load_pdf(file_path)
@@ -111,8 +111,10 @@ class MultiModalDocumentLoader:
             loader = Docx2txtLoader(file_path)
         elif file_ext == ".pptx":
             return self._load_pptx(file_path)
-        elif file_ext in [".jpg", ".jpeg", ".png", ".gif"] and self.image_enabled and self.multimodal_enabled and UnstructuredImageLoader:
-            loader = UnstructuredImageLoader(file_path)
+        elif file_ext == ".xlsx":
+            return self._load_xlsx(file_path)
+        elif file_ext in [".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".tiff", ".tif"]:
+            return self._load_image(file_path)
         else:
             # 使用通用加载器作为后备
             loader = UnstructuredFileLoader(file_path)
@@ -202,7 +204,96 @@ class MultiModalDocumentLoader:
             },
         )
         return [doc]
-    
+
+    def _load_xlsx(self, file_path: str) -> List[Document]:
+        """Load XLSX using openpyxl, extracting text from all cells."""
+        import openpyxl
+
+        wb = openpyxl.load_workbook(file_path, read_only=True, data_only=True)
+        sheets_text: list[str] = []
+        for sheet_name in wb.sheetnames:
+            ws = wb[sheet_name]
+            rows: list[str] = []
+            for row in ws.iter_rows(values_only=True):
+                cells = [str(c) if c is not None else "" for c in row]
+                if any(c.strip() for c in cells):
+                    rows.append(" | ".join(cells))
+            if rows:
+                sheets_text.append(f"[Sheet: {sheet_name}]\n" + "\n".join(rows))
+        wb.close()
+
+        if not sheets_text:
+            raise RuntimeError(f"XLSX 文件中未找到可提取的数据: {file_path}")
+
+        content = "\n\n".join(sheets_text)
+        doc = Document(
+            page_content=content,
+            metadata={
+                "file_path": file_path,
+                "file_type": ".xlsx",
+                "source": file_path,
+                "sheet_count": len(wb.sheetnames),
+            },
+        )
+        return [doc]
+
+    def _load_image(self, file_path: str) -> List[Document]:
+        """Load image — OCR if available, otherwise index by filename and metadata."""
+        from PIL import Image
+
+        img = Image.open(file_path)
+        ext = os.path.splitext(file_path)[1].lower()
+        width, height = img.size
+
+        content = ""
+        ocr_used = False
+
+        # Try OCR with preprocessing for better accuracy
+        try:
+            import pytesseract
+            from PIL import ImageEnhance, ImageFilter
+
+            # Convert to grayscale and enhance contrast
+            if img.mode in ("RGBA", "LA", "P"):
+                img = img.convert("RGB")
+            gray = img.convert("L")
+            enhanced = ImageEnhance.Contrast(gray).enhance(2.0)
+            sharp = enhanced.filter(ImageFilter.SHARPEN)
+
+            text = pytesseract.image_to_string(sharp, lang="chi_sim+eng")
+            if text and text.strip():
+                content = text.strip()
+                ocr_used = True
+                logger.info(f"OCR extracted {len(content)} chars from: {file_path}")
+        except ImportError:
+            logger.debug("pytesseract not installed, using metadata fallback")
+        except Exception as e:
+            logger.debug(f"OCR failed for {file_path}: {e}")
+
+        if not content:
+            basename = os.path.basename(file_path)
+            content = (
+                f"[Image: {basename}]\n"
+                f"Dimensions: {width}x{height}\n"
+                f"Format: {img.format or ext}\n"
+                f"Mode: {img.mode}"
+            )
+            logger.info(f"Indexed by metadata: {file_path}")
+
+        doc = Document(
+            page_content=content,
+            metadata={
+                "file_path": file_path,
+                "file_type": ext,
+                "source": file_path,
+                "width": width,
+                "height": height,
+                "format": img.format or ext,
+                "ocr_used": ocr_used,
+            },
+        )
+        return [doc]
+
     def load_directory(self, directory_path: str, glob_pattern: str = "**/*") -> List[Document]:
         """
         加载目录中的所有文件
@@ -219,7 +310,7 @@ class MultiModalDocumentLoader:
         for file_path in files:
             try:
                 ext = os.path.splitext(file_path)[1].lower()
-                if ext == '.txt':
+                if ext in ['.txt', '.md', '.html', '.htm', '.csv', '.json', '.xml']:
                     loader = TextLoader(file_path, encoding="utf-8")
                 elif ext == '.pdf':
                     docs = self._load_pdf(file_path)
@@ -230,6 +321,16 @@ class MultiModalDocumentLoader:
                     loader = Docx2txtLoader(file_path)
                 elif ext == '.pptx':
                     docs = self._load_pptx(file_path)
+                    for doc in docs:
+                        documents.append(doc)
+                    continue
+                elif ext == '.xlsx':
+                    docs = self._load_xlsx(file_path)
+                    for doc in docs:
+                        documents.append(doc)
+                    continue
+                elif ext in ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.tiff', '.tif']:
+                    docs = self._load_image(file_path)
                     for doc in docs:
                         documents.append(doc)
                     continue

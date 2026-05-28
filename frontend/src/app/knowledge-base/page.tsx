@@ -34,6 +34,7 @@ import type { SystemStats, DocumentInfo, KnowledgeBase, ChunkInfo } from "@/type
 const ALLOWED_EXTENSIONS = [
   ".pdf", ".docx", ".doc", ".txt", ".md", ".html", ".htm",
   ".csv", ".json", ".xml", ".pptx", ".xlsx",
+  ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".tiff", ".tif",
 ];
 function isAllowed(name: string) {
   return ALLOWED_EXTENSIONS.some((ext) => name.toLowerCase().endsWith(ext));
@@ -173,8 +174,8 @@ export default function KnowledgeBasePage() {
       if (result.rejected.length > 0) toast.warning(`${result.rejected.length} 个文件格式不支持`);
       setPendingFiles([]);
 
-      // Auto-index after upload
-      const indexResult = await indexFiles([], false, selectedKBId);
+      // Index only the newly uploaded files
+      const indexResult = await indexFiles(result.saved, false, selectedKBId);
       setProgress(100);
       toast.success(
         `已上传并索引 ${result.saved.length} 个文件（${indexResult.total_chunks_generated} 个分块）`
@@ -194,9 +195,23 @@ export default function KnowledgeBasePage() {
     setDeletingDoc(source);
     try {
       await deleteDocument(source, selectedKBId);
+      // Optimistic local update — no full page refresh
+      const deletedDoc = documents.find((d) => d.source === source);
+      setDocuments((prev) => prev.filter((d) => d.source !== source));
+      if (expandedDoc === source) {
+        setExpandedDoc(null);
+        setChunks([]);
+        setEditingChunkId(null);
+      }
+      if (stats && deletedDoc) {
+        setStats((prev) => prev ? { ...prev, doc_count: Math.max(0, prev.doc_count - 1) } : prev);
+      }
+      setKBs((prev) =>
+        prev.map((k) =>
+          k.id === selectedKBId ? { ...k, doc_count: Math.max(0, (k.doc_count ?? 1) - 1) } : k
+        )
+      );
       toast.success("文档已删除");
-      await loadDocs();
-      loadKBs();
     } catch (e) {
       toast.error("删除失败", { description: e instanceof Error ? e.message : "请重试" });
     } finally {
@@ -257,7 +272,7 @@ export default function KnowledgeBasePage() {
     setIndexing(true);
     setProgress(20);
     try {
-      const result = await indexFiles([], false, selectedKBId);
+      const result = await indexFiles([], true, selectedKBId);
       setProgress(100);
       toast.success(`已索引 ${result.total_documents_indexed} 个文档（${result.total_chunks_generated} 个分块）`);
       await loadDocs();

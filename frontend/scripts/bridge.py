@@ -143,6 +143,9 @@ def handle_index(data: dict) -> dict:
 
     if "clear_vectorstore" in data:
         payload["clear_vectorstore"] = data["clear_vectorstore"]
+    elif payload.get("directory_path"):
+        # Always clear when re-indexing the entire directory
+        payload["clear_vectorstore"] = True
 
     result = pipeline.run(payload)
     return {"indexing_summary": result.get("indexing_summary", {})}
@@ -231,27 +234,13 @@ def handle_delete_doc(data: dict) -> dict:
             os.remove(candidate)
             deleted = True
 
-    # Clear and re-index remaining files
+    # Targeted deletion — only remove chunks for this source, no re-indexing
     from ragify.core.vectorstores import VectorStoreManager
 
     vm = VectorStoreManager()
-    vm.clear()
+    removed = vm.delete_by_source(source)
 
-    kb_data_dir = os.path.join(PROJECT_ROOT, "data", kb_id)
-    remaining: list[str] = []
-    if os.path.isdir(kb_data_dir):
-        remaining = [
-            os.path.join(kb_data_dir, f)
-            for f in os.listdir(kb_data_dir)
-            if os.path.isfile(os.path.join(kb_data_dir, f))
-        ]
-    if remaining:
-        from ragify.mcp import IndexingPipeline
-
-        pipeline = IndexingPipeline()
-        pipeline.run({"file_paths": remaining})
-
-    return {"success": True, "deleted": deleted}
+    return {"success": True, "deleted": deleted, "chunks_removed": removed}
 
 
 def handle_list_chunks(data: dict) -> dict:

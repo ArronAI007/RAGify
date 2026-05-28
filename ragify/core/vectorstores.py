@@ -371,3 +371,43 @@ class VectorStoreManager:
         except Exception as e:
             logger.error(f"更新分块时出错: {e}")
             return False
+
+    def delete_by_source(self, source: str) -> int:
+        """删除指定源文件的所有分块，无需重建索引。返回删除的分块数。"""
+        try:
+            if not self.vectorstore:
+                return 0
+
+            if self.vectorstore_type == "faiss":
+                docstore_ids: list[str] = []
+                for idx, doc_id in list(self.vectorstore.index_to_docstore_id.items()):
+                    doc = self.vectorstore.docstore.search(doc_id)
+                    if doc is not None and doc.metadata.get("source") == source:
+                        docstore_ids.append(doc_id)
+
+                if not docstore_ids:
+                    return 0
+
+                self.vectorstore.delete(docstore_ids)
+                self.vectorstore.save_local(self.persist_directory)
+                logger.info(f"已从索引删除 {len(docstore_ids)} 个分块（源: {source}）")
+                return len(docstore_ids)
+
+            elif self.vectorstore_type == "chromadb":
+                collection = self.vectorstore.get()
+                ids_to_delete: list[str] = []
+                ids_list = collection.get("ids", [])
+                metas = collection.get("metadatas", [])
+                for i, doc_id in enumerate(ids_list):
+                    meta = metas[i] if metas and i < len(metas) else {}
+                    if meta.get("source") == source:
+                        ids_to_delete.append(str(doc_id))
+
+                if ids_to_delete:
+                    self.vectorstore.delete(ids=ids_to_delete)
+                return len(ids_to_delete)
+
+            return 0
+        except Exception as e:
+            logger.error(f"按源删除分块时出错: {e}")
+            return 0

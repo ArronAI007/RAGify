@@ -7,6 +7,7 @@ from langchain_text_splitters import (
     TokenTextSplitter
 )
 from ..config import get_config
+import hashlib
 import re
 import logging
 
@@ -88,15 +89,21 @@ class DocumentProcessor:
         return chunk_docs
     
     def process_documents(self, documents: List[Document]) -> List[Document]:
-        """
-        处理多个文档
-        """
-        processed_docs = []
-        
+        """处理多个文档，自动去除内容完全相同的重复分块"""
+        processed_docs: list[Document] = []
+        seen_hashes: set[str] = set()
+
         for doc in documents:
             chunk_docs = self.process_document(doc)
-            processed_docs.extend(chunk_docs)
-        
+            for chunk in chunk_docs:
+                content_hash = hashlib.sha256(
+                    chunk.page_content.encode("utf-8")
+                ).hexdigest()
+                if content_hash in seen_hashes:
+                    continue
+                seen_hashes.add(content_hash)
+                processed_docs.append(chunk)
+
         return processed_docs
     
     def filter_documents(self, documents: List[Document], min_length: int = 20) -> List[Document]:
