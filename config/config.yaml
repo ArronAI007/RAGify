@@ -73,6 +73,17 @@ agent:
     - name: "document_retriever"
       enabled: true
 
+# Agentic RAG配置
+agentic:
+  enabled: true
+  max_iterations: 8
+  tools:
+    - retrieve_docs
+    - calculator
+  skills:
+    - summarization
+    - data_extraction
+
 # 检索配置
 retrieval:
   k: 3

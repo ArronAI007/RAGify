@@ -1,6 +1,7 @@
 import type {
   IndexingSummary,
   QueryResult,
+  AgenticQueryResult,
   SystemStats,
   HealthStatus,
   DocumentList,
@@ -106,6 +107,21 @@ export async function queryRAG(
       k,
       score_threshold: scoreThreshold,
       kb_id: kbId,
+    }),
+  });
+}
+
+export async function agenticQuery(
+  query: string,
+  kbId?: string,
+  chatHistory?: { role: string; content: string }[]
+): Promise<AgenticQueryResult> {
+  return fetchJSON<AgenticQueryResult>(`${BASE}/query/agentic`, {
+    method: "POST",
+    body: JSON.stringify({
+      query,
+      kb_id: kbId,
+      chat_history: chatHistory,
     }),
   });
 }

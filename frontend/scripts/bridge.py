@@ -274,6 +274,48 @@ def handle_update_chunk(data: dict) -> dict:
     return {"success": ok}
 
 
+def handle_agentic_query(data: dict) -> dict:
+    kb_id = data.get("kb_id")
+    if kb_id:
+        _resolve_kb_path(kb_id)
+    from ragify.agentic import AgenticRAG, SkillRegistry
+
+    tools = None
+    if data.get("skills"):
+        registry = SkillRegistry()
+        matched = registry.match(data["query"])
+        if matched:
+            # Enrich system prompt with matched skill instructions
+            skill_prompts = "\n".join(s.name + ": " + s.system_prompt for s in matched)
+            tools = AgenticRAG(kb_id).tools  # base tools + skill context handled via prompt
+
+    agent = AgenticRAG(
+        kb_id=kb_id or data.get("kb_id"),
+        tools=tools,
+        max_iterations=data.get("max_iterations"),
+    )
+    result = agent.run(
+        data["query"],
+        chat_history=data.get("chat_history"),
+    )
+    return result
+
+
+def handle_list_skills(_data: dict) -> dict:
+    from ragify.agentic import SkillRegistry
+
+    registry = SkillRegistry()
+    skills = []
+    for s in registry.get_all():
+        skills.append({
+            "name": s.name,
+            "description": s.description,
+            "version": s.version,
+            "keywords": s.keywords,
+        })
+    return {"skills": skills}
+
+
 def handle_health(_data: dict) -> dict:
     from ragify.config import get_config
 
@@ -300,6 +342,8 @@ HANDLERS = {
     "delete_doc": handle_delete_doc,
     "list_chunks": handle_list_chunks,
     "update_chunk": handle_update_chunk,
+    "agentic_query": handle_agentic_query,
+    "list_skills": handle_list_skills,
 }
 
 

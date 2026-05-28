@@ -88,11 +88,26 @@ export interface KBListResponse {
   knowledge_bases: KnowledgeBase[];
 }
 
+export interface ToolCall {
+  tool: string;
+  input: Record<string, unknown>;
+  output: string;
+  iteration: number;
+}
+
+export interface AgenticQueryResult {
+  response: string;
+  tool_calls: ToolCall[];
+  sources: string[];
+  iterations: number;
+}
+
 export interface ChatMessage {
   id: string;
   role: "user" | "assistant";
   content: string;
   sources?: TopSource[];
+  tool_calls?: ToolCall[];
   timestamp: Date;
 }
 
