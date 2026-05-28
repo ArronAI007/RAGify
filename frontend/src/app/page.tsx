@@ -6,10 +6,11 @@ import { Database, MessageSquare, Search, TrendingUp } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { getStats, getHealth } from "@/lib/api";
-import type { SystemStats, HealthStatus } from "@/types";
+import { getStats, getHealth, listKBs } from "@/lib/api";
+import type { SystemStats, HealthStatus, KnowledgeBase } from "@/types";
 
 export default function DashboardPage() {
+  const [kbs, setKBs] = useState<KnowledgeBase[]>([]);
   const [stats, setStats] = useState<SystemStats | null>(null);
   const [health, setHealth] = useState<HealthStatus | null>(null);
   const [loading, setLoading] = useState(true);
@@ -18,7 +19,12 @@ export default function DashboardPage() {
   useEffect(() => {
     async function load() {
       try {
-        const [s, h] = await Promise.all([getStats(), getHealth()]);
+        const [kbList, s, h] = await Promise.all([
+          listKBs(),
+          getStats().catch(() => null),
+          getHealth().catch(() => null),
+        ]);
+        setKBs(kbList.knowledge_bases);
         setStats(s);
         setHealth(h);
       } catch (e) {
@@ -29,6 +35,8 @@ export default function DashboardPage() {
     }
     load();
   }, []);
+
+  const totalDocs = kbs.reduce((sum, kb) => sum + (kb.doc_count ?? 0), 0);
 
   return (
     <motion.div
@@ -69,12 +77,30 @@ export default function DashboardPage() {
           </>
         ) : (
           <>
-            <StatsCard
-              title="索引文档数"
-              value={stats?.doc_count ?? 0}
-              icon={Database}
-              trend="个文档块"
-            />
+            <Card className="glass overflow-hidden">
+              <CardContent className="py-5">
+                <div className="flex items-center justify-between">
+                  <p className="text-sm text-muted-foreground">索引文档数</p>
+                  <Database className="h-4 w-4 text-primary/60" />
+                </div>
+                <p className="mt-2 text-2xl font-bold tracking-tight">
+                  {totalDocs.toLocaleString()}
+                </p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  共 {kbs.length} 个知识库
+                </p>
+                {kbs.length > 0 && (
+                  <div className="mt-2 space-y-0.5">
+                    {kbs.map((kb) => (
+                      <p key={kb.id} className="text-xs text-muted-foreground/80 flex justify-between">
+                        <span className="truncate mr-2">{kb.name}</span>
+                        <span className="shrink-0 tabular-nums">{kb.doc_count ?? 0} 个文件</span>
+                      </p>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
             <StatsCard
               title="向量库类型"
               value={stats?.store_type ?? "-"}
@@ -86,14 +112,14 @@ export default function DashboardPage() {
               title="LLM 提供商"
               value={health?.llm_provider ?? "-"}
               icon={MessageSquare}
-              trend="DeepSeek-V3"
+              trend={health?.version ?? ""}
               isText
             />
             <StatsCard
               title="系统状态"
               value={health?.status === "healthy" ? "运行中" : "异常"}
               icon={Search}
-              trend={health?.version ?? ""}
+              trend={health?.vectorstore_type ?? ""}
               isText
             />
           </>
@@ -106,9 +132,9 @@ export default function DashboardPage() {
             <CardTitle className="text-lg">快速开始</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3 text-sm text-muted-foreground">
-            <Step index={1} text="前往「知识库」上传你的文档（支持 PDF、Word、Markdown 等格式）" />
-            <Step index={2} text="系统自动将文档分块并生成向量索引" />
-            <Step index={3} text="在「智能问答」中输入你的问题，获取基于文档的精准回答" />
+            <Step index={1} text="前往「知识库」创建知识库，上传文档（PDF、Word、PPTX、XLSX、图片等格式）" />
+            <Step index={2} text="点击「上传并索引」，系统将文档分块并构建向量索引" />
+            <Step index={3} text="在「智能问答」中选择知识库，输入问题获取基于文档的精准回答" />
             <Step index={4} text="在「系统设置」中调整 LLM 模型、嵌入模型和检索参数" />
           </CardContent>
         </Card>
@@ -117,15 +143,17 @@ export default function DashboardPage() {
           <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle className="text-lg">系统能力</CardTitle>
             <Badge variant="outline" className="text-xs">
-              v0.1
+              {health?.version ?? "v0.2"}
             </Badge>
           </CardHeader>
           <CardContent className="grid gap-3">
             {[
-              { label: "文档多格式支持", desc: "PDF, Word, Markdown, HTML, TXT" },
+              { label: "多格式文档解析", desc: "PDF, Word, PPTX, XLSX, Markdown, 图片等" },
+              { label: "多知识库管理", desc: "独立索引、隔离检索，按目录组织文档" },
               { label: "语义向量检索", desc: "DashScope text-embedding-v4 / FAISS" },
+              { label: "分块编辑", desc: "查看并编辑文档分块内容，优化检索质量" },
               { label: "智能 RAG 问答", desc: "检索增强生成，带来源引用" },
-              { label: "多模态扩展", desc: "图像内容理解与跨模态查询" },
+              { label: "OCR 图片识别", desc: "自动提取图片中的文字内容" },
             ].map((item) => (
               <div
                 key={item.label}
