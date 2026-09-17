@@ -62,9 +62,10 @@ def get_current_user(
         raise HTTPException(status_code=401, detail="缺少登录凭证")
     try:
         payload = decode_access_token(credentials.credentials)
-    except jwt.PyJWTError:
+        user_id = payload["sub"]
+    except (jwt.PyJWTError, KeyError):
         raise HTTPException(status_code=401, detail="登录凭证无效或已过期")
-    user = manager.get_by_id(payload["sub"])
+    user = manager.get_by_id(user_id)
     if user is None:
         raise HTTPException(status_code=401, detail="用户不存在")
     return user
