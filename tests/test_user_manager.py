@@ -32,7 +32,7 @@ class TestUserManager(unittest.TestCase):
     def test_create_and_get_by_email(self):
         user = self.manager.create("Alice@Example.com", "password123", "Alice")
         self.assertTrue(user.id)
-        self.assertEqual(user.email, "alice@example.com")  # 邮箱归一化成小写
+        self.assertEqual(user.email, "alice@example.com")
 
         fetched = self.manager.get_by_email("alice@example.com")
         self.assertIsNotNone(fetched)
