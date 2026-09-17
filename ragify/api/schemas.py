@@ -1,6 +1,6 @@
 """Pydantic 请求体模型，一一对应 frontend route.ts 发过来的 JSON 形状。"""
 
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr
 
 
 class CreateKBRequest(BaseModel):
@@ -42,3 +42,14 @@ class UpdateChunkRequest(BaseModel):
     kb_id: str | None = None
     chunk_id: str
     content: str
+
+
+class RegisterRequest(BaseModel):
+    email: EmailStr
+    password: str
+    name: str
+
+
+class LoginRequest(BaseModel):
+    email: EmailStr
+    password: str

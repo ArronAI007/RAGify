@@ -8,8 +8,14 @@ import os
 import threading
 from pathlib import Path
 
+import jwt
+from fastapi import Depends, HTTPException
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+
 from ..config import get_config
 from ..core.kb_manager import KBManager
+from ..core.security import decode_access_token
+from ..core.user_manager import User, UserManager
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 
@@ -39,3 +45,26 @@ def resolve_kb_path(manager: KBManager, kb_id: str | None) -> str:
     get_config().update("vectorstore.persist_directory", persist_dir)
     os.makedirs(persist_dir, exist_ok=True)
     return persist_dir
+
+
+_bearer_scheme = HTTPBearer(auto_error=False)
+
+
+def get_user_manager() -> UserManager:
+    return UserManager()
+
+
+def get_current_user(
+    credentials: HTTPAuthorizationCredentials | None = Depends(_bearer_scheme),
+    manager: UserManager = Depends(get_user_manager),
+) -> User:
+    if credentials is None:
+        raise HTTPException(status_code=401, detail="缺少登录凭证")
+    try:
+        payload = decode_access_token(credentials.credentials)
+    except jwt.PyJWTError:
+        raise HTTPException(status_code=401, detail="登录凭证无效或已过期")
+    user = manager.get_by_id(payload["sub"])
+    if user is None:
+        raise HTTPException(status_code=401, detail="用户不存在")
+    return user
