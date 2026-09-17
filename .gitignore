@@ -30,3 +30,6 @@ output/
 # OS
 .DS_Store
 Thumbs.db
+
+# start.sh runtime files (pid/log)
+.run/
