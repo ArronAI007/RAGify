@@ -39,6 +39,15 @@ class TestPasswordHashing(unittest.TestCase):
         h = hash_password("my-password")
         self.assertFalse(verify_password("wrong-password", h))
 
+    def test_hash_password_rejects_over_72_bytes(self):
+        with self.assertRaises(ValueError):
+            hash_password("a" * 73)
+
+    def test_verify_password_rejects_over_72_byte_candidate(self):
+        h = hash_password("a" * 72)
+        with self.assertRaises(ValueError):
+            verify_password("a" * 73, h)
+
 
 class TestJWT(unittest.TestCase):
     def test_encode_decode_roundtrip(self):
@@ -68,6 +77,19 @@ class TestJWT(unittest.TestCase):
     def test_decode_garbage_token_raises(self):
         with self.assertRaises(pyjwt.PyJWTError):
             decode_access_token("not-a-real-token", secret=TEST_SECRET)
+
+    def test_decode_rejects_alg_none_token(self):
+        import base64
+        import json
+
+        def _b64url(data: bytes) -> str:
+            return base64.urlsafe_b64encode(data).rstrip(b"=").decode()
+
+        header = _b64url(json.dumps({"alg": "none", "typ": "JWT"}).encode())
+        payload = _b64url(json.dumps({"sub": "attacker", "email": "x@y.com"}).encode())
+        forged_token = f"{header}.{payload}."
+        with self.assertRaises(pyjwt.PyJWTError):
+            decode_access_token(forged_token, secret=TEST_SECRET)
 
 
 if __name__ == "__main__":

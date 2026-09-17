@@ -16,6 +16,7 @@ get_current_user）都会一致地读到同一个进程内缓存的密钥。
 import logging
 import os
 import secrets
+import threading
 from datetime import datetime, timedelta, timezone
 
 import bcrypt
@@ -26,8 +27,13 @@ logger = logging.getLogger("ragify.core.security")
 JWT_ALGORITHM = "HS256"
 JWT_EXPIRES_DAYS = 7
 BCRYPT_ROUNDS = 12
+# bcrypt 只使用密码的前 72 字节，超出部分会被静默忽略——如果不做长度限制，
+# 两个仅在第 72 字节之后不同的密码会被判定为"相同密码"，这是一个真实的
+# 密码碰撞漏洞，不是理论上的边界情况。
+MAX_PASSWORD_BYTES = 72
 
 _fallback_secret: str | None = None
+_fallback_secret_lock = threading.Lock()
 
 
 def _get_jwt_secret() -> str:
@@ -35,21 +41,31 @@ def _get_jwt_secret() -> str:
     secret = os.environ.get("RAGIFY_JWT_SECRET")
     if secret:
         return secret
-    if _fallback_secret is None:
-        _fallback_secret = secrets.token_hex(32)
-        logger.warning(
-            "未设置 RAGIFY_JWT_SECRET，已生成临时密钥——重启服务后所有登录状态"
-            "会失效。生产使用请在 .env 里配置 RAGIFY_JWT_SECRET。"
-        )
-    return _fallback_secret
+    with _fallback_secret_lock:
+        if _fallback_secret is None:
+            _fallback_secret = secrets.token_hex(32)
+            logger.warning(
+                "未设置 RAGIFY_JWT_SECRET，已生成临时密钥——重启服务后所有登录状态"
+                "会失效。生产使用请在 .env 里配置 RAGIFY_JWT_SECRET。"
+            )
+        return _fallback_secret
+
+
+def _check_password_length(password: str) -> bytes:
+    encoded = password.encode("utf-8")
+    if len(encoded) > MAX_PASSWORD_BYTES:
+        raise ValueError(f"密码过长（最多 {MAX_PASSWORD_BYTES} 字节）")
+    return encoded
 
 
 def hash_password(password: str) -> str:
-    return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt(rounds=BCRYPT_ROUNDS)).decode("utf-8")
+    encoded = _check_password_length(password)
+    return bcrypt.hashpw(encoded, bcrypt.gensalt(rounds=BCRYPT_ROUNDS)).decode("utf-8")
 
 
 def verify_password(password: str, password_hash: str) -> bool:
-    return bcrypt.checkpw(password.encode("utf-8"), password_hash.encode("utf-8"))
+    encoded = _check_password_length(password)
+    return bcrypt.checkpw(encoded, password_hash.encode("utf-8"))
 
 
 def create_access_token(user_id: str, email: str, secret: str | None = None) -> str:
