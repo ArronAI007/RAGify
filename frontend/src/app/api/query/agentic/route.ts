@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { callBridge } from "@/lib/bridge";
+import { callBackend } from "@/lib/backend";
 
 export async function POST(req: NextRequest) {
   try {
@@ -19,7 +19,7 @@ export async function POST(req: NextRequest) {
     if (body.chat_history) payload.chat_history = body.chat_history;
     if (body.max_iterations) payload.max_iterations = Number(body.max_iterations);
 
-    const result = callBridge("agentic_query", payload, { timeout: 120_000 });
+    const result = await callBackend("/api/query/agentic", payload, { timeout: 120_000 });
     return NextResponse.json(result);
   } catch (e) {
     return NextResponse.json({ error: String(e) }, { status: 500 });
