@@ -1,17 +1,19 @@
 import json
 import logging
-import os
 import shutil
-import tempfile
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
+from sqlalchemy.orm import Session
+
+from ..db.models import Base, KnowledgeBaseRow
+from ..db.session import default_database_url, get_engine, get_session
+
 logger = logging.getLogger("ragify.core.kb_manager")
 
-VECTORSTORE_DIR = Path("vectorstore")
-KBS_FILE = VECTORSTORE_DIR / "kbs.json"
+DEFAULT_VECTORSTORE_DIR = Path("vectorstore")
 
 
 @dataclass
@@ -23,35 +25,81 @@ class KnowledgeBase:
 
 
 class KBManager:
-    def __init__(self):
-        VECTORSTORE_DIR.mkdir(parents=True, exist_ok=True)
+    def __init__(
+        self,
+        database_url: str | None = None,
+        vectorstore_dir: str | Path | None = None,
+    ):
+        self.database_url = database_url
+        self.vectorstore_dir = Path(vectorstore_dir) if vectorstore_dir else DEFAULT_VECTORSTORE_DIR
+        self.vectorstore_dir.mkdir(parents=True, exist_ok=True)
 
-    def migrate_if_needed(self) -> bool:
-        """One-time migration: move old flat index files into a KB subdirectory."""
-        if KBS_FILE.exists():
+        # Ensure the schema exists for a fresh DB file (e.g. a brand-new sqlite
+        # file in tests, or a first run before `alembic upgrade head` has been
+        # applied). Idempotent: only creates tables that are missing, so it
+        # never clobbers a schema Alembic already manages.
+        engine = get_engine(self.database_url or default_database_url())
+        Base.metadata.create_all(bind=engine)
+
+    def _session(self) -> Session:
+        return get_session(self.database_url)
+
+    @property
+    def _kbs_json_file(self) -> Path:
+        return self.vectorstore_dir / "kbs.json"
+
+    def migrate_json_if_needed(self) -> bool:
+        """One-time startup migration: bring existing on-disk state into the DB.
+
+        Handles two legacy states:
+        - kbs.json exists (post-KB-support installs): import its rows into the DB,
+          then rename the file to kbs.json.migrated so it is not re-imported.
+        - No kbs.json but a flat index.faiss + index.pkl exist directly under
+          vectorstore_dir (pre-KB-support installs): move them into a new per-KB
+          directory and insert one row for it.
+
+        Returns True if a migration ran, False if there was nothing to migrate
+        (including when the DB already has rows).
+        """
+        if self.list_all():
             return False
 
-        old_index = VECTORSTORE_DIR / "index.faiss"
-        old_pkl = VECTORSTORE_DIR / "index.pkl"
+        kbs_file = self._kbs_json_file
+        if kbs_file.exists():
+            data = json.loads(kbs_file.read_text(encoding="utf-8"))
+            with self._session() as session:
+                for item in data.get("kbs", []):
+                    session.add(KnowledgeBaseRow(
+                        id=item["id"],
+                        name=item["name"],
+                        description=item.get("description", ""),
+                        created_at=item.get("created_at", ""),
+                    ))
+                session.commit()
+            kbs_file.rename(kbs_file.with_suffix(".json.migrated"))
+            logger.info("已将 %s 迁移进数据库", kbs_file)
+            return True
 
+        old_index = self.vectorstore_dir / "index.faiss"
+        old_pkl = self.vectorstore_dir / "index.pkl"
         if old_index.exists() and old_pkl.exists():
             kb_id = "default-" + uuid.uuid4().hex[:8]
-            kb_dir = VECTORSTORE_DIR / kb_id
+            kb_dir = self.vectorstore_dir / kb_id
             kb_dir.mkdir(parents=True, exist_ok=True)
             shutil.move(str(old_index), str(kb_dir / "index.faiss"))
             shutil.move(str(old_pkl), str(kb_dir / "index.pkl"))
 
-            kb = KnowledgeBase(
-                id=kb_id,
-                name="默认知识库",
-                description="迁移自旧版本数据",
-                created_at=datetime.now(timezone.utc).isoformat(),
-            )
-            self._save([kb])
-            logger.info("已迁移旧索引到 KB '%s' (%s)", kb.name, kb_id)
+            with self._session() as session:
+                session.add(KnowledgeBaseRow(
+                    id=kb_id,
+                    name="默认知识库",
+                    description="迁移自旧版本数据",
+                    created_at=datetime.now(timezone.utc).isoformat(),
+                ))
+                session.commit()
+            logger.info("已迁移旧索引到 KB '默认知识库' (%s)", kb_id)
             return True
 
-        self._save([])
         return False
 
     def create(self, name: str, description: str = "") -> KnowledgeBase:
@@ -59,104 +107,54 @@ class KBManager:
         if not name:
             raise ValueError("知识库名称不能为空")
 
-        kbs = self._load()
-        existing = {kb.name.lower() for kb in kbs}
-        if name.lower() in existing:
-            raise ValueError(f"知识库 '{name}' 已存在")
+        with self._session() as session:
+            existing = {row.name.lower() for row in session.query(KnowledgeBaseRow).all()}
+            if name.lower() in existing:
+                raise ValueError(f"知识库 '{name}' 已存在")
 
-        kb_id = uuid.uuid4().hex[:12]
-        kb_dir = VECTORSTORE_DIR / kb_id
+            kb_id = uuid.uuid4().hex[:12]
+            created_at = datetime.now(timezone.utc).isoformat()
+            description = description.strip()
+            session.add(KnowledgeBaseRow(
+                id=kb_id, name=name, description=description, created_at=created_at,
+            ))
+            session.commit()
+            result = KnowledgeBase(id=kb_id, name=name, description=description, created_at=created_at)
+
+        kb_dir = self.vectorstore_dir / kb_id
         kb_dir.mkdir(parents=True, exist_ok=True)
-
-        kb = KnowledgeBase(
-            id=kb_id,
-            name=name,
-            description=description.strip(),
-            created_at=datetime.now(timezone.utc).isoformat(),
-        )
-        kbs.append(kb)
-        self._save(kbs)
         logger.info("创建知识库 '%s' (%s)", name, kb_id)
-        return kb
+        return result
 
     def delete(self, kb_id: str) -> bool:
-        kbs = self._load()
-        target = next((kb for kb in kbs if kb.id == kb_id), None)
-        if target is None:
-            return False
+        with self._session() as session:
+            row = session.get(KnowledgeBaseRow, kb_id)
+            if row is None:
+                return False
+            name = row.name
+            session.delete(row)
+            session.commit()
 
-        kb_dir = VECTORSTORE_DIR / kb_id
+        kb_dir = self.vectorstore_dir / kb_id
         if kb_dir.exists():
             shutil.rmtree(str(kb_dir))
-
-        kbs = [kb for kb in kbs if kb.id != kb_id]
-        self._save(kbs)
-        logger.info("删除知识库 '%s' (%s)", target.name, kb_id)
+        logger.info("删除知识库 '%s' (%s)", name, kb_id)
         return True
 
     def list_all(self) -> list[KnowledgeBase]:
-        return self._load()
+        with self._session() as session:
+            rows = session.query(KnowledgeBaseRow).all()
+            return [
+                KnowledgeBase(id=r.id, name=r.name, description=r.description, created_at=r.created_at)
+                for r in rows
+            ]
 
     def get(self, kb_id: str) -> KnowledgeBase | None:
-        return next((kb for kb in self._load() if kb.id == kb_id), None)
+        with self._session() as session:
+            row = session.get(KnowledgeBaseRow, kb_id)
+            if row is None:
+                return None
+            return KnowledgeBase(id=row.id, name=row.name, description=row.description, created_at=row.created_at)
 
     def get_persist_dir(self, kb_id: str) -> str:
-        return str(VECTORSTORE_DIR / kb_id)
-
-    def update_doc_count(self, kb_id: str, count: int) -> None:
-        """Called after indexing to update doc_count in metadata (best-effort)."""
-        # doc_count is derived from get_document_count() at query time,
-        # so this is a no-op — kept for future use if we want cached counts.
-        pass
-
-    # ---- private ----
-
-    def _load(self) -> list[KnowledgeBase]:
-        if not KBS_FILE.exists():
-            return []
-        try:
-            data = json.loads(KBS_FILE.read_text(encoding="utf-8"))
-            return [
-                KnowledgeBase(
-                    id=item["id"],
-                    name=item["name"],
-                    description=item.get("description", ""),
-                    created_at=item.get("created_at", ""),
-                )
-                for item in data.get("kbs", [])
-            ]
-        except (json.JSONDecodeError, KeyError) as e:
-            logger.error("解析 kbs.json 失败: %s", e)
-            return []
-
-    def _save(self, kbs: list[KnowledgeBase]) -> None:
-        data = {
-            "kbs": [
-                {
-                    "id": kb.id,
-                    "name": kb.name,
-                    "description": kb.description,
-                    "created_at": kb.created_at,
-                }
-                for kb in kbs
-            ]
-        }
-        # Atomic write: temp file + rename
-        tmp = tempfile.NamedTemporaryFile(
-            mode="w",
-            encoding="utf-8",
-            dir=VECTORSTORE_DIR,
-            prefix=".kbs_",
-            suffix=".tmp",
-            delete=False,
-        )
-        try:
-            json.dump(data, tmp, ensure_ascii=False, indent=2)
-            tmp.flush()
-            os.fsync(tmp.fileno())
-            tmp.close()
-            os.replace(tmp.name, str(KBS_FILE))
-        except Exception:
-            tmp.close()
-            Path(tmp.name).unlink(missing_ok=True)
-            raise
+        return str(self.vectorstore_dir / kb_id)
