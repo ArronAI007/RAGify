@@ -13,6 +13,12 @@ from ..db.models import UserRow
 from ..db.session import get_session
 from .security import hash_password, verify_password
 
+# verify_credentials 的"邮箱不存在"分支如果直接 return，跟"密码错误"分支
+# （会跑一次 bcrypt）耗时相差巨大（bcrypt cost factor 12 下约 100+ 毫秒），
+# 足以通过响应时间枚举出哪些邮箱已注册。用这个预先算好的哈希在"邮箱不存在"
+# 分支上也跑一次 verify_password，抹平两条路径的耗时差异。
+_DUMMY_HASH = hash_password("dummy-password-for-timing-parity")
+
 
 @dataclass
 class User:
@@ -81,6 +87,10 @@ class UserManager:
         with self._session() as session:
             row = session.query(UserRow).filter(UserRow.email == email).first()
             if row is None:
+                try:
+                    verify_password(password, _DUMMY_HASH)
+                except ValueError:
+                    pass
                 return None
             if not verify_password(password, row.password_hash):
                 return None
