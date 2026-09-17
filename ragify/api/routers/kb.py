@@ -1,3 +1,5 @@
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException
 
 from ..dependencies import KB_LOCK, get_kb_manager
@@ -5,6 +7,8 @@ from ..schemas import CreateKBRequest
 from ...config import get_config
 from ...core.kb_manager import KBManager
 from ...core.vectorstores import VectorStoreManager
+
+logger = logging.getLogger("ragify.api.routers.kb")
 
 router = APIRouter()
 
@@ -21,8 +25,8 @@ def list_kbs(manager: KBManager = Depends(get_kb_manager)) -> dict:
                 get_config().update("vectorstore.persist_directory", persist_dir)
                 vm = VectorStoreManager()
                 doc_count = vm.get_document_count()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning("获取知识库 '%s' (%s) 的文档数失败: %s", kb.name, kb.id, e)
             kbs_out.append({
                 "id": kb.id,
                 "name": kb.name,
