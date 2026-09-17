@@ -63,37 +63,49 @@ export default function DashboardPage() {
         </Card>
       )}
 
-      <div className="mb-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="mb-8 grid gap-4 lg:grid-cols-3">
         {loading ? (
           <>
-            {[1, 2, 3, 4].map((i) => (
-              <Card key={i}>
-                <CardContent className="py-6">
-                  <Skeleton className="mb-2 h-4 w-20" />
-                  <Skeleton className="h-8 w-16" />
-                </CardContent>
-              </Card>
-            ))}
+            <Card className="lg:col-span-2">
+              <CardContent className="py-6">
+                <Skeleton className="mb-3 h-4 w-24" />
+                <Skeleton className="h-10 w-20" />
+              </CardContent>
+            </Card>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 lg:grid-cols-1">
+              {[1, 2, 3].map((i) => (
+                <Card key={i}>
+                  <CardContent className="py-3.5">
+                    <Skeleton className="mb-2 h-3 w-16" />
+                    <Skeleton className="h-4 w-12" />
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
           </>
         ) : (
           <>
-            <Card className="glass overflow-hidden">
-              <CardContent className="py-5">
+            {/* 核心指标：索引文档数——用尺寸和强调色跟其余次要指标拉开层次 */}
+            <Card className="glass-strong relative col-span-1 overflow-hidden border-primary/20 bg-gradient-to-br from-primary/[0.07] via-transparent to-transparent transition-all duration-200 hover:border-primary/35 hover:shadow-lg hover:shadow-primary/5 lg:col-span-2">
+              <div className="glow-amber pointer-events-none absolute -right-8 -top-8 h-32 w-32 rounded-full bg-primary/10" />
+              <CardContent className="relative py-6">
                 <div className="flex items-center justify-between">
-                  <p className="text-sm text-muted-foreground">索引文档数</p>
-                  <Database className="h-4 w-4 text-primary/60" />
+                  <p className="text-sm font-medium text-foreground/70">索引文档数</p>
+                  <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary/10">
+                    <Database className="h-4.5 w-4.5 text-primary" />
+                  </div>
                 </div>
-                <p className="mt-2 text-2xl font-bold tracking-tight">
+                <p className="mt-3 text-5xl font-bold tracking-tight text-foreground">
                   {totalDocs.toLocaleString()}
                 </p>
-                <p className="mt-1 text-xs text-muted-foreground">
+                <p className="mt-2 text-sm text-muted-foreground">
                   共 {kbs.length} 个知识库
                 </p>
                 {kbs.length > 0 && (
-                  <div className="mt-2 space-y-0.5">
+                  <div className="mt-4 space-y-1 border-t border-border/60 pt-3">
                     {kbs.map((kb) => (
-                      <p key={kb.id} className="text-xs text-muted-foreground/80 flex justify-between">
-                        <span className="truncate mr-2">{kb.name}</span>
+                      <p key={kb.id} className="flex justify-between text-xs text-muted-foreground">
+                        <span className="mr-2 truncate">{kb.name}</span>
                         <span className="shrink-0 tabular-nums">{kb.doc_count ?? 0} 个文件</span>
                       </p>
                     ))}
@@ -101,27 +113,19 @@ export default function DashboardPage() {
                 )}
               </CardContent>
             </Card>
-            <StatsCard
-              title="向量库类型"
-              value={stats?.store_type ?? "-"}
-              icon={TrendingUp}
-              trend={stats?.collection_name ?? ""}
-              isText
-            />
-            <StatsCard
-              title="LLM 提供商"
-              value={health?.llm_provider ?? "-"}
-              icon={MessageSquare}
-              trend={health?.version ?? ""}
-              isText
-            />
-            <StatsCard
-              title="系统状态"
-              value={health?.status === "healthy" ? "运行中" : "异常"}
-              icon={Search}
-              trend={health?.vectorstore_type ?? ""}
-              isText
-            />
+
+            {/* 次要指标：紧凑的元信息行，视觉权重明显低于核心指标 */}
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 lg:grid-cols-1">
+              <MetaStat title="向量库类型" value={stats?.store_type ?? "-"} icon={TrendingUp} trend={stats?.collection_name ?? ""} />
+              <MetaStat title="LLM 提供商" value={health?.llm_provider ?? "-"} icon={MessageSquare} trend={health?.version ?? ""} />
+              <MetaStat
+                title="系统状态"
+                value={health?.status === "healthy" ? "运行中" : "异常"}
+                icon={Search}
+                trend={health?.vectorstore_type ?? ""}
+                tone={health?.status === "healthy" ? "positive" : "negative"}
+              />
+            </div>
           </>
         )}
       </div>
@@ -157,7 +161,7 @@ export default function DashboardPage() {
             ].map((item) => (
               <div
                 key={item.label}
-                className="flex items-center justify-between rounded-lg bg-background/50 px-4 py-2.5"
+                className="flex items-center justify-between rounded-lg bg-background/50 px-4 py-2.5 transition-colors duration-150 hover:bg-primary/5"
               >
                 <span className="font-medium text-foreground">{item.label}</span>
                 <span className="text-xs text-muted-foreground">{item.desc}</span>
@@ -170,30 +174,41 @@ export default function DashboardPage() {
   );
 }
 
-function StatsCard({
+function MetaStat({
   title,
   value,
   icon: Icon,
   trend,
-  isText = false,
+  tone = "neutral",
 }: {
   title: string;
   value: string | number;
   icon: React.ComponentType<{ className?: string }>;
   trend: string;
-  isText?: boolean;
+  tone?: "neutral" | "positive" | "negative";
 }) {
+  const toneClass =
+    tone === "positive"
+      ? "text-emerald-600"
+      : tone === "negative"
+        ? "text-destructive"
+        : "text-foreground";
+
   return (
-    <Card className="glass overflow-hidden">
-      <CardContent className="py-5">
-        <div className="flex items-center justify-between">
-          <p className="text-sm text-muted-foreground">{title}</p>
-          <Icon className="h-4 w-4 text-primary/60" />
+    <Card className="glass overflow-hidden transition-all duration-200 hover:border-primary/25 hover:bg-primary/[0.03]">
+      <CardContent className="flex items-center gap-3 py-3.5">
+        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-muted">
+          <Icon className="h-3.5 w-3.5 text-muted-foreground" />
         </div>
-        <p className="mt-2 text-2xl font-bold tracking-tight">
-          {isText ? value : (value as number).toLocaleString()}
-        </p>
-        <p className="mt-1 text-xs text-muted-foreground">{trend}</p>
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-xs text-muted-foreground">{title}</p>
+          <p className={`truncate text-sm font-semibold tracking-tight ${toneClass}`}>{value}</p>
+        </div>
+        {trend && (
+          <span className="hidden shrink-0 truncate text-xs text-muted-foreground/70 lg:block lg:max-w-24">
+            {trend}
+          </span>
+        )}
       </CardContent>
     </Card>
   );

@@ -13,6 +13,10 @@ import {
   ChevronUp,
   Brain,
   SlidersHorizontal,
+  Search,
+  Calculator,
+  FolderPlus,
+  Folder,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -144,7 +148,15 @@ export default function QAPage() {
     >
       <div className="mb-6 flex items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">智能问答</h1>
+          <div className="flex items-center gap-2">
+            <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">智能问答</h1>
+            {mode === "agentic" && (
+              <Badge className="border-chart-2/30 bg-chart-2/10 text-chart-2" variant="outline">
+                <Brain className="mr-1 h-3 w-3" />
+                Agentic
+              </Badge>
+            )}
+          </div>
           <p className="mt-2 text-sm text-muted-foreground sm:text-base">
             基于知识库的 RAG 对话，每个回答附带引用来源
           </p>
@@ -194,8 +206,16 @@ export default function QAPage() {
                   animate={{ opacity: 1 }}
                   className="flex h-full flex-col items-center justify-center py-24 text-center"
                 >
-                  <div className="glow-amber mb-6 rounded-2xl bg-primary/5 p-6">
-                    <Sparkles className="mx-auto h-10 w-10 text-primary" />
+                  <div
+                    className={`mb-6 rounded-2xl p-6 ${
+                      mode === "agentic" ? "bg-chart-2/5" : "glow-amber bg-primary/5"
+                    }`}
+                  >
+                    {mode === "agentic" ? (
+                      <Brain className="mx-auto h-10 w-10 text-chart-2" />
+                    ) : (
+                      <Sparkles className="mx-auto h-10 w-10 text-primary" />
+                    )}
                   </div>
                   <h3 className="text-lg font-semibold">
                     {mode === "agentic" ? "开始 Agentic RAG 对话" : "开始 RAG 对话"}
@@ -309,7 +329,7 @@ function QASettingsPanel({
           onClick={() => setMode("agentic")}
           className={`flex-1 rounded-md px-3 py-1.5 text-xs font-medium transition-all ${
             mode === "agentic"
-              ? "bg-background text-foreground shadow-sm"
+              ? "bg-background text-chart-2 shadow-sm"
               : "text-muted-foreground hover:text-foreground"
           }`}
         >
@@ -381,7 +401,7 @@ function QASettingsPanel({
             FAISS 向量检索
           </Badge>
           {mode === "agentic" && (
-            <Badge variant="outline" className="text-xs border-primary/30 text-primary">
+            <Badge variant="outline" className="text-xs border-chart-2/30 text-chart-2">
               Agentic 模式
             </Badge>
           )}
@@ -403,16 +423,28 @@ function MessageBubble({ message }: { message: ChatMessage }) {
       className={`flex gap-3 ${isUser ? "justify-end" : ""}`}
     >
       {!isUser && (
-        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/10">
-          <Sparkles className="h-4 w-4 text-primary" />
+        <div
+          className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${
+            hasToolCalls ? "bg-chart-2/10" : "bg-primary/10"
+          }`}
+        >
+          {hasToolCalls ? (
+            <Brain className="h-4 w-4 text-chart-2" />
+          ) : (
+            <Sparkles className="h-4 w-4 text-primary" />
+          )}
         </div>
       )}
       <div className={`max-w-[80%] ${isUser ? "order-first" : ""}`}>
-        {hasToolCalls && <ToolCallBubble toolCalls={message.tool_calls!} />}
+        {hasToolCalls && <ReasoningTrace toolCalls={message.tool_calls!} />}
 
         <div
           className={`rounded-2xl px-4 py-3 text-sm leading-relaxed ${
-            isUser ? "bg-primary text-primary-foreground" : "glass-strong"
+            isUser
+              ? "bg-primary text-primary-foreground"
+              : hasToolCalls
+                ? "glass-strong border-l-2 border-l-chart-2/50"
+                : "glass-strong"
           }`}
         >
           <p className="whitespace-pre-wrap">{message.content}</p>
@@ -449,49 +481,87 @@ function MessageBubble({ message }: { message: ChatMessage }) {
   );
 }
 
-function ToolCallBubble({ toolCalls }: { toolCalls: ToolCall[] }) {
+const TOOL_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
+  retrieve_docs: Search,
+  calculator: Calculator,
+  index_directory: FolderPlus,
+  list_files: Folder,
+};
+
+const TOOL_LABELS: Record<string, string> = {
+  retrieve_docs: "检索知识库",
+  calculator: "计算",
+  index_directory: "索引目录",
+  list_files: "列出文件",
+};
+
+function summarizeToolInput(input: Record<string, unknown>): string {
+  const firstValue = Object.values(input)[0];
+  return typeof firstValue === "string" ? firstValue : JSON.stringify(input);
+}
+
+// Agentic 模式的核心差异化能力：把工具调用过程做成可视化的推理时间线，
+// 而不是隐藏在一个折叠按钮背后——用户应该能一眼看出"用了什么工具、查了什么"。
+function ReasoningTrace({ toolCalls }: { toolCalls: ToolCall[] }) {
+  return (
+    <div className="mb-3 overflow-hidden rounded-xl border border-chart-2/20 bg-chart-2/[0.04]">
+      <div className="flex items-center gap-2 border-b border-chart-2/15 px-3 py-2">
+        <Brain className="h-3.5 w-3.5 text-chart-2" />
+        <span className="text-xs font-semibold text-chart-2">推理过程</span>
+        <span className="text-xs text-muted-foreground">· {toolCalls.length} 步</span>
+      </div>
+      <div className="px-3 py-2">
+        {toolCalls.map((tc, i) => (
+          <TraceStep key={i} toolCall={tc} isLast={i === toolCalls.length - 1} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function TraceStep({ toolCall, isLast }: { toolCall: ToolCall; isLast: boolean }) {
   const [expanded, setExpanded] = useState(false);
+  const Icon = TOOL_ICONS[toolCall.tool] ?? Wrench;
+  const label = TOOL_LABELS[toolCall.tool] ?? toolCall.tool;
 
   return (
-    <div className="mb-2">
+    <div className="flex gap-2.5">
+      <div className="flex flex-col items-center">
+        <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-chart-2/10">
+          <Icon className="h-3 w-3 text-chart-2" />
+        </div>
+        {!isLast && <div className="my-0.5 w-px flex-1 bg-chart-2/15" />}
+      </div>
       <button
         onClick={() => setExpanded(!expanded)}
-        className="flex items-center gap-2 rounded-lg bg-primary/5 px-3 py-2 text-xs font-medium text-primary transition-colors hover:bg-primary/10"
+        className="min-w-0 flex-1 rounded-lg py-1 pr-2 text-left text-xs transition-colors hover:bg-chart-2/5"
       >
-        <Wrench className="h-3 w-3" />
-        工具调用 ({toolCalls.length} 步)
-        {expanded ? (
-          <ChevronUp className="h-3 w-3" />
-        ) : (
-          <ChevronDown className="h-3 w-3" />
+        <div className="flex items-center justify-between gap-2">
+          <div className="min-w-0">
+            <p className="font-medium text-foreground">{label}</p>
+            <p className="truncate text-muted-foreground">
+              {summarizeToolInput(toolCall.input)}
+            </p>
+          </div>
+          {expanded ? (
+            <ChevronUp className="h-3 w-3 shrink-0 text-muted-foreground" />
+          ) : (
+            <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground" />
+          )}
+        </div>
+        {expanded && (
+          <div className="mt-1.5 space-y-1 rounded-lg border border-border bg-background/60 px-2.5 py-2 text-muted-foreground">
+            <div>
+              <span className="font-medium">输入: </span>
+              {JSON.stringify(toolCall.input)}
+            </div>
+            <div>
+              <span className="font-medium">输出: </span>
+              <span className="line-clamp-3">{toolCall.output}</span>
+            </div>
+          </div>
         )}
       </button>
-
-      {expanded && (
-        <div className="mt-2 space-y-2">
-          {toolCalls.map((tc, i) => (
-            <div
-              key={i}
-              className="rounded-lg border border-border bg-background/30 px-3 py-2 text-xs"
-            >
-              <div className="flex items-center justify-between mb-1">
-                <span className="font-medium text-primary">{tc.tool}</span>
-                <span className="text-muted-foreground">
-                  步骤 {tc.iteration}
-                </span>
-              </div>
-              <div className="text-muted-foreground">
-                <span className="font-medium">输入: </span>
-                {JSON.stringify(tc.input)}
-              </div>
-              <div className="mt-1 text-muted-foreground">
-                <span className="font-medium">输出: </span>
-                <span className="line-clamp-3">{tc.output}</span>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
     </div>
   );
 }
