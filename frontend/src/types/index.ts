@@ -98,7 +98,7 @@ export interface ToolCall {
 export interface AgenticQueryResult {
   response: string;
   tool_calls: ToolCall[];
-  sources: string[];
+  sources: TopSource[];
   iterations: number;
 }
 

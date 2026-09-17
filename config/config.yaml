@@ -77,12 +77,16 @@ agent:
 agentic:
   enabled: true
   max_iterations: 8
+  # 可选: retrieve_docs, calculator, index_directory, list_files
   tools:
     - retrieve_docs
     - calculator
   skills:
     - summarization
     - data_extraction
+  # 开启后，在给出最终回答前额外做一次"回答是否有据可查"的自我校验
+  # 会让每次问答多消耗一次 LLM 调用（延迟/成本上升），默认关闭
+  reflection: false
 
 # 检索配置
 retrieval:

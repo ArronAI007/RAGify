@@ -90,6 +90,7 @@ export default function QAPage() {
           role: "assistant",
           content: result.response,
           tool_calls: result.tool_calls,
+          sources: result.sources,
           timestamp: new Date(),
         };
         setMessages((prev) => [...prev, assistantMsg]);

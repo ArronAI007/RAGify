@@ -278,20 +278,13 @@ def handle_agentic_query(data: dict) -> dict:
     kb_id = data.get("kb_id")
     if kb_id:
         _resolve_kb_path(kb_id)
-    from ragify.agentic import AgenticRAG, SkillRegistry
+    from ragify.agentic import AgenticRAG
 
-    tools = None
-    if data.get("skills"):
-        registry = SkillRegistry()
-        matched = registry.match(data["query"])
-        if matched:
-            # Enrich system prompt with matched skill instructions
-            skill_prompts = "\n".join(s.name + ": " + s.system_prompt for s in matched)
-            tools = AgenticRAG(kb_id).tools  # base tools + skill context handled via prompt
-
+    # AgenticRAG matches skills against the query and enriches its own system
+    # prompt internally (see AgenticRAG._build_system_prompt), so no per-request
+    # skill wiring is needed here.
     agent = AgenticRAG(
-        kb_id=kb_id or data.get("kb_id"),
-        tools=tools,
+        kb_id=kb_id,
         max_iterations=data.get("max_iterations"),
     )
     result = agent.run(
