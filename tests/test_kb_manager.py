@@ -10,13 +10,18 @@ import shutil
 import sys
 import tempfile
 import unittest
+import uuid
+from datetime import datetime, timezone
 from pathlib import Path
+from unittest.mock import patch
+
+from sqlalchemy.orm import Session
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from ragify.core.kb_manager import KBManager
-from ragify.db.models import Base
-from ragify.db.session import get_engine
+from ragify.db.models import Base, KnowledgeBaseRow
+from ragify.db.session import get_engine, get_session
 
 
 class TestKBManager(unittest.TestCase):
@@ -46,6 +51,48 @@ class TestKBManager(unittest.TestCase):
         self.manager.create("重复名称")
         with self.assertRaises(ValueError):
             self.manager.create("重复名称")
+
+    def test_create_race_condition_raises_value_error(self):
+        """Exercises the `except IntegrityError` branch in create(), not the
+        in-Python pre-check (that path is already covered by
+        test_create_duplicate_name_raises).
+
+        A true concurrent-thread interleaving isn't practical to assert
+        deterministically here, so instead we force the same interleaving
+        deterministically: we patch Session.commit so that the *first* time
+        create() calls it (i.e. right after its own pre-check already ran
+        and found no duplicate), we commit a colliding row through a
+        *separate* session first -- simulating another process's create()
+        call finishing in that exact window. create()'s own subsequent
+        commit then hits the DB's UNIQUE constraint and must go through the
+        except IntegrityError -> ValueError translation, since its pre-check
+        already ran before the collision existed. If the try/except
+        IntegrityError block were removed, this test would fail with an
+        unhandled sqlalchemy.exc.IntegrityError instead of ValueError.
+        """
+        name = "并发冲突名称"
+        original_commit = Session.commit
+        state = {"injected": False}
+
+        def racing_commit(session_self, *args, **kwargs):
+            if not state["injected"]:
+                state["injected"] = True
+                other_session = get_session(self.db_url)
+                try:
+                    other_session.add(KnowledgeBaseRow(
+                        id=uuid.uuid4().hex[:12], name=name, description="",
+                        created_at=datetime.now(timezone.utc).isoformat(),
+                    ))
+                    # Call the unpatched commit directly so this doesn't
+                    # recurse into racing_commit again.
+                    original_commit(other_session)
+                finally:
+                    other_session.close()
+            return original_commit(session_self, *args, **kwargs)
+
+        with patch.object(Session, "commit", racing_commit):
+            with self.assertRaises(ValueError):
+                self.manager.create(name)
 
     def test_list_all_empty(self):
         self.assertEqual(self.manager.list_all(), [])

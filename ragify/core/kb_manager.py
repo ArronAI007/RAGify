@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ..db.models import KnowledgeBaseRow
@@ -111,7 +112,11 @@ class KBManager:
             session.add(KnowledgeBaseRow(
                 id=kb_id, name=name, description=description, created_at=created_at,
             ))
-            session.commit()
+            try:
+                session.commit()
+            except IntegrityError:
+                session.rollback()
+                raise ValueError(f"知识库 '{name}' 已存在")
             result = KnowledgeBase(id=kb_id, name=name, description=description, created_at=created_at)
 
         kb_dir = self.vectorstore_dir / kb_id
