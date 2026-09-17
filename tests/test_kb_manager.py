@@ -15,6 +15,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from ragify.core.kb_manager import KBManager
+from ragify.db.models import Base
 from ragify.db.session import get_engine
 
 
@@ -23,6 +24,7 @@ class TestKBManager(unittest.TestCase):
         self.tmp_dir = tempfile.mkdtemp()
         self.db_url = f"sqlite:///{self.tmp_dir}/test.db"
         self.vectorstore_dir = Path(self.tmp_dir) / "vectorstore"
+        Base.metadata.create_all(bind=get_engine(self.db_url))
         self.manager = KBManager(database_url=self.db_url, vectorstore_dir=self.vectorstore_dir)
 
     def tearDown(self):

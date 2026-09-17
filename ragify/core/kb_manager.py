@@ -8,8 +8,8 @@ from pathlib import Path
 
 from sqlalchemy.orm import Session
 
-from ..db.models import Base, KnowledgeBaseRow
-from ..db.session import default_database_url, get_engine, get_session
+from ..db.models import KnowledgeBaseRow
+from ..db.session import get_session
 
 logger = logging.getLogger("ragify.core.kb_manager")
 
@@ -33,13 +33,6 @@ class KBManager:
         self.database_url = database_url
         self.vectorstore_dir = Path(vectorstore_dir) if vectorstore_dir else DEFAULT_VECTORSTORE_DIR
         self.vectorstore_dir.mkdir(parents=True, exist_ok=True)
-
-        # Ensure the schema exists for a fresh DB file (e.g. a brand-new sqlite
-        # file in tests, or a first run before `alembic upgrade head` has been
-        # applied). Idempotent: only creates tables that are missing, so it
-        # never clobbers a schema Alembic already manages.
-        engine = get_engine(self.database_url or default_database_url())
-        Base.metadata.create_all(bind=engine)
 
     def _session(self) -> Session:
         return get_session(self.database_url)
