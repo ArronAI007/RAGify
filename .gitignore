@@ -33,3 +33,4 @@ Thumbs.db
 
 # start.sh runtime files (pid/log)
 .run/
+.gstack/

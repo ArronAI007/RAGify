@@ -31,10 +31,12 @@ export default function RootLayout({
         className={`${geistSans.variable} ${geistMono.variable} font-sans antialiased`}
       >
         <TooltipProvider delay={300}>
-          <div className="flex min-h-screen">
+          <div className="flex min-h-screen flex-col lg:flex-row">
             <Sidebar />
-            <main className="ml-64 flex-1 overflow-auto">
-              <div className="mx-auto max-w-6xl px-8 py-8">{children}</div>
+            <main className="flex-1 overflow-auto lg:ml-64">
+              <div className="mx-auto max-w-6xl px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
+                {children}
+              </div>
             </main>
           </div>
           <Toaster position="top-right" />

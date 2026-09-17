@@ -12,6 +12,7 @@ import {
   ChevronDown,
   ChevronUp,
   Brain,
+  SlidersHorizontal,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -20,6 +21,12 @@ import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Slider } from "@/components/ui/slider";
 import { Separator } from "@/components/ui/separator";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
 import { queryRAG, agenticQuery, listKBs } from "@/lib/api";
 import type { ChatMessage, TopSource, ToolCall, KnowledgeBase } from "@/types";
 import {
@@ -126,25 +133,55 @@ export default function QAPage() {
   };
 
   const handleClear = () => setMessages([]);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   return (
     <motion.div
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.4 }}
-      className="flex h-[calc(100vh-8rem)] flex-col"
+      className="flex h-[calc(100vh-6rem)] flex-col lg:h-[calc(100vh-8rem)]"
     >
-      <div className="mb-6 flex items-center justify-between">
+      <div className="mb-6 flex items-center justify-between gap-3">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">智能问答</h1>
-          <p className="mt-2 text-muted-foreground">
+          <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">智能问答</h1>
+          <p className="mt-2 text-sm text-muted-foreground sm:text-base">
             基于知识库的 RAG 对话，每个回答附带引用来源
           </p>
         </div>
-        <Button variant="outline" size="sm" onClick={handleClear}>
-          <RotateCcw className="mr-2 h-4 w-4" />
-          清空对话
-        </Button>
+        <div className="flex shrink-0 items-center gap-2">
+          <Sheet open={settingsOpen} onOpenChange={setSettingsOpen}>
+            <Button
+              variant="outline"
+              size="sm"
+              className="lg:hidden"
+              onClick={() => setSettingsOpen(true)}
+              aria-label="问答设置"
+            >
+              <SlidersHorizontal className="h-4 w-4" />
+            </Button>
+            <SheetContent side="right" className="w-72 overflow-y-auto sm:max-w-xs">
+              <SheetHeader>
+                <SheetTitle>问答设置</SheetTitle>
+              </SheetHeader>
+              <div className="px-4 pb-4">
+                <QASettingsPanel
+                  mode={mode}
+                  setMode={setMode}
+                  kbId={kbId}
+                  setKbId={setKbId}
+                  kbs={kbs}
+                  k={k}
+                  setK={setK}
+                />
+              </div>
+            </SheetContent>
+          </Sheet>
+          <Button variant="outline" size="sm" onClick={handleClear}>
+            <RotateCcw className="mr-2 h-4 w-4" />
+            清空对话
+          </Button>
+        </div>
       </div>
 
       <div className="flex flex-1 gap-6">
@@ -218,105 +255,139 @@ export default function QAPage() {
 
         <Card className="glass hidden w-64 shrink-0 lg:block">
           <CardContent className="py-4">
-            <h4 className="mb-4 text-sm font-semibold">问答模式</h4>
-            <div className="flex rounded-lg bg-muted p-1">
-              <button
-                onClick={() => setMode("standard")}
-                className={`flex-1 rounded-md px-3 py-1.5 text-xs font-medium transition-all ${
-                  mode === "standard"
-                    ? "bg-background text-foreground shadow-sm"
-                    : "text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                <Sparkles className="mr-1 inline h-3 w-3" />
-                标准
-              </button>
-              <button
-                onClick={() => setMode("agentic")}
-                className={`flex-1 rounded-md px-3 py-1.5 text-xs font-medium transition-all ${
-                  mode === "agentic"
-                    ? "bg-background text-foreground shadow-sm"
-                    : "text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                <Brain className="mr-1 inline h-3 w-3" />
-                Agentic
-              </button>
-            </div>
-
-            <Separator className="my-4" />
-
-            <h4 className="mb-4 text-sm font-semibold">知识库选择</h4>
-            <Select value={kbId ?? ""} onValueChange={setKbId}>
-              <SelectTrigger>
-                <SelectValue placeholder="选择知识库">
-                  {kbs.find((k) => k.id === kbId)?.name ?? "选择知识库"}
-                </SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                {kbs.map((kb) => (
-                  <SelectItem key={kb.id} value={kb.id}>
-                    {kb.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            {kbs.length === 0 && (
-              <p className="mt-2 text-xs text-muted-foreground">
-                暂无可用知识库，请先在知识库管理页面创建
-              </p>
-            )}
-            {kbs.length > 0 && !kbId && (
-              <p className="mt-2 text-xs text-muted-foreground">
-                请选择一个知识库开始问答
-              </p>
-            )}
-
-            <Separator className="my-4" />
-
-            <h4 className="mb-4 text-sm font-semibold">检索设置</h4>
-            <div className="space-y-4">
-              {mode === "standard" && (
-                <div>
-                  <div className="mb-2 flex items-center justify-between">
-                    <label className="text-xs text-muted-foreground">检索数量 (k)</label>
-                    <span className="text-xs font-medium">{k}</span>
-                  </div>
-                  <Slider
-                    value={[k]}
-                    onValueChange={(v) => setK(Array.isArray(v) ? v[0] : v)}
-                    min={1}
-                    max={10}
-                    step={1}
-                    className="w-full"
-                  />
-                </div>
-              )}
-              {mode === "agentic" && (
-                <p className="text-xs text-muted-foreground">
-                  Agentic 模式下智能体自动决定检索策略，无需手动设置 k 值。
-                </p>
-              )}
-              <Separator />
-              <div className="space-y-2">
-                <p className="text-xs text-muted-foreground">模型信息</p>
-                <Badge variant="outline" className="text-xs">
-                  DeepSeek-V3
-                </Badge>
-                <Badge variant="outline" className="text-xs">
-                  FAISS 向量检索
-                </Badge>
-                {mode === "agentic" && (
-                  <Badge variant="outline" className="text-xs border-primary/30 text-primary">
-                    Agentic 模式
-                  </Badge>
-                )}
-              </div>
-            </div>
+            <QASettingsPanel
+              mode={mode}
+              setMode={setMode}
+              kbId={kbId}
+              setKbId={setKbId}
+              kbs={kbs}
+              k={k}
+              setK={setK}
+            />
           </CardContent>
         </Card>
       </div>
     </motion.div>
+  );
+}
+
+interface QASettingsPanelProps {
+  mode: QAMode;
+  setMode: (mode: QAMode) => void;
+  kbId: string | null;
+  setKbId: (id: string | null) => void;
+  kbs: KnowledgeBase[];
+  k: number;
+  setK: (k: number) => void;
+}
+
+function QASettingsPanel({
+  mode,
+  setMode,
+  kbId,
+  setKbId,
+  kbs,
+  k,
+  setK,
+}: QASettingsPanelProps) {
+  return (
+    <>
+      <h4 className="mb-4 text-sm font-semibold">问答模式</h4>
+      <div className="flex rounded-lg bg-muted p-1">
+        <button
+          onClick={() => setMode("standard")}
+          className={`flex-1 rounded-md px-3 py-1.5 text-xs font-medium transition-all ${
+            mode === "standard"
+              ? "bg-background text-foreground shadow-sm"
+              : "text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          <Sparkles className="mr-1 inline h-3 w-3" />
+          标准
+        </button>
+        <button
+          onClick={() => setMode("agentic")}
+          className={`flex-1 rounded-md px-3 py-1.5 text-xs font-medium transition-all ${
+            mode === "agentic"
+              ? "bg-background text-foreground shadow-sm"
+              : "text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          <Brain className="mr-1 inline h-3 w-3" />
+          Agentic
+        </button>
+      </div>
+
+      <Separator className="my-4" />
+
+      <h4 className="mb-4 text-sm font-semibold">知识库选择</h4>
+      <Select value={kbId ?? ""} onValueChange={setKbId}>
+        <SelectTrigger>
+          <SelectValue placeholder="选择知识库">
+            {kbs.find((item) => item.id === kbId)?.name ?? "选择知识库"}
+          </SelectValue>
+        </SelectTrigger>
+        <SelectContent>
+          {kbs.map((kb) => (
+            <SelectItem key={kb.id} value={kb.id}>
+              {kb.name}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      {kbs.length === 0 && (
+        <p className="mt-2 text-xs text-muted-foreground">
+          暂无可用知识库，请先在知识库管理页面创建
+        </p>
+      )}
+      {kbs.length > 0 && !kbId && (
+        <p className="mt-2 text-xs text-muted-foreground">
+          请选择一个知识库开始问答
+        </p>
+      )}
+
+      <Separator className="my-4" />
+
+      <h4 className="mb-4 text-sm font-semibold">检索设置</h4>
+      <div className="space-y-4">
+        {mode === "standard" && (
+          <div>
+            <div className="mb-2 flex items-center justify-between">
+              <label className="text-xs text-muted-foreground">检索数量 (k)</label>
+              <span className="text-xs font-medium">{k}</span>
+            </div>
+            <Slider
+              value={[k]}
+              onValueChange={(v) => setK(Array.isArray(v) ? v[0] : v)}
+              min={1}
+              max={10}
+              step={1}
+              className="w-full"
+            />
+          </div>
+        )}
+        {mode === "agentic" && (
+          <p className="text-xs text-muted-foreground">
+            Agentic 模式下智能体自动决定检索策略，无需手动设置 k 值。
+          </p>
+        )}
+        <Separator />
+        <div className="space-y-2">
+          <p className="text-xs text-muted-foreground">模型信息</p>
+          <Badge variant="outline" className="text-xs">
+            DeepSeek-V3
+          </Badge>
+          <Badge variant="outline" className="text-xs">
+            FAISS 向量检索
+          </Badge>
+          {mode === "agentic" && (
+            <Badge variant="outline" className="text-xs border-primary/30 text-primary">
+              Agentic 模式
+            </Badge>
+          )}
+        </div>
+      </div>
+    </>
   );
 }
 
