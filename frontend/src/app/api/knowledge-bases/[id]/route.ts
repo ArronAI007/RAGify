@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { callBridge } from "@/lib/bridge";
+import { callBackend } from "@/lib/backend";
 
 export async function DELETE(
   _req: NextRequest,
@@ -7,7 +7,7 @@ export async function DELETE(
 ) {
   try {
     const { id } = await params;
-    const result = callBridge("delete_kb", { kb_id: id }, { timeout: 15_000 });
+    const result = await callBackend(`/api/kb/${id}`, undefined, { method: "DELETE", timeout: 15_000 });
     return NextResponse.json(result);
   } catch (e) {
     return NextResponse.json({ error: String(e) }, { status: 500 });

@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
-import { callBridge } from "@/lib/bridge";
+import { callBackend } from "@/lib/backend";
 
 export async function GET() {
   try {
-    const result = callBridge("health", {}, { timeout: 15_000 });
+    const result = await callBackend("/api/health", undefined, { method: "GET", timeout: 15_000 });
     return NextResponse.json(result);
   } catch (e) {
     return NextResponse.json(
