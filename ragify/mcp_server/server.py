@@ -36,7 +36,7 @@ def _list_tools() -> list[dict]:
 
 def _list_resources() -> list[dict]:
     manager = KBManager()
-    manager.migrate_if_needed()
+    manager.migrate_json_if_needed()
     kbs = manager.list_all()
     resources: list[dict] = []
     for kb in kbs:
@@ -100,7 +100,7 @@ def _call_tool(name: str, arguments: dict) -> Any:
             return f"Tool error: {e}"
     elif name == "ragify_list_kbs":
         manager = KBManager()
-        manager.migrate_if_needed()
+        manager.migrate_json_if_needed()
         return [{"id": kb.id, "name": kb.name} for kb in manager.list_all()]
     return {"error": f"Unknown tool: {name}"}
 
