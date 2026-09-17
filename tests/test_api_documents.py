@@ -54,6 +54,38 @@ class TestDocumentsRoutes(unittest.TestCase):
         self.assertEqual(called_payload["directory_path"], "/some/dir")
         self.assertTrue(called_payload["clear_vectorstore"])
 
+    @patch("ragify.api.routers.documents.IndexingPipeline")
+    def test_index_with_file_paths_does_not_default_clear_vectorstore(self, mock_pipeline_cls):
+        mock_pipeline = MagicMock()
+        mock_pipeline.run.return_value = {"indexing_summary": {"total_documents_indexed": 1}}
+        mock_pipeline_cls.return_value = mock_pipeline
+
+        res = self.client.post("/api/index", json={
+            "file_paths": ["/some/file.txt"], "kb_id": self.kb.id,
+        })
+
+        self.assertEqual(res.status_code, 200)
+        called_payload = mock_pipeline.run.call_args[0][0]
+        self.assertEqual(called_payload["file_paths"], ["/some/file.txt"])
+        self.assertNotIn("clear_vectorstore", called_payload)
+
+    @patch("ragify.api.routers.documents.IndexingPipeline")
+    def test_index_falls_back_to_kb_data_dir_when_no_path_or_files_given(self, mock_pipeline_cls):
+        mock_pipeline = MagicMock()
+        mock_pipeline.run.return_value = {"indexing_summary": {"total_documents_indexed": 0}}
+        mock_pipeline_cls.return_value = mock_pipeline
+
+        kb_data_dir = Path(self.tmp_dir) / "project_root_stub" / "data" / self.kb.id
+
+        with patch("ragify.api.routers.documents.PROJECT_ROOT", str(Path(self.tmp_dir) / "project_root_stub")):
+            kb_data_dir.mkdir(parents=True, exist_ok=True)
+            res = self.client.post("/api/index", json={"kb_id": self.kb.id})
+
+        self.assertEqual(res.status_code, 200)
+        called_payload = mock_pipeline.run.call_args[0][0]
+        self.assertEqual(called_payload["directory_path"], str(kb_data_dir))
+        self.assertTrue(called_payload["clear_vectorstore"])
+
     @patch("ragify.api.routers.documents.VectorStoreManager")
     def test_clear_index(self, mock_vsm_cls):
         mock_vsm = MagicMock()
