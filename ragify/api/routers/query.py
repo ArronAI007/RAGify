@@ -50,11 +50,10 @@ def agentic_query(body: AgenticQueryRequest, manager: KBManager = Depends(get_kb
     # run() 执行期间（不是构造时）才现读一次全局 vectorstore 配置，所以
     # 不能像 query() 那样提前把锁放掉。见本计划文档开头的并发说明。
     with KB_LOCK:
-        if body.kb_id:
-            try:
-                resolve_kb_path(manager, body.kb_id)
-            except ValueError as e:
-                raise HTTPException(status_code=400, detail=str(e))
+        try:
+            resolve_kb_path(manager, body.kb_id)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
 
         agent = AgenticRAG(kb_id=body.kb_id, max_iterations=body.max_iterations)
         result = agent.run(body.query, chat_history=body.chat_history)

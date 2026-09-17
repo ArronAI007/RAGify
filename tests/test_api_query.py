@@ -47,6 +47,14 @@ class TestQueryRoutes(unittest.TestCase):
         self.assertEqual(res.status_code, 400)
         self.assertIn("没有可用知识库", res.json()["detail"])
 
+    def test_agentic_query_without_available_kb_returns_400(self):
+        kbs = self.manager.list_all()
+        self.manager.delete(kbs[0].id)
+
+        res = self.client.post("/api/query/agentic", json={"query": "test"})
+        self.assertEqual(res.status_code, 400)
+        self.assertIn("没有可用知识库", res.json()["detail"])
+
     @patch("ragify.api.routers.query.QueryPipeline")
     def test_query_reshapes_pipeline_result(self, mock_pipeline_cls):
         mock_doc = MagicMock()
