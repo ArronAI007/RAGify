@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""验证 FastAPI 启动事件会调用一次 KBManager.migrate_json_if_needed()。"""
+"""验证 FastAPI 启动事件会调用一次 KBManager.migrate_json_if_needed() 和
+TenantManager.migrate_default_tenant_if_needed()。"""
 
 import sys
 import unittest
@@ -15,12 +16,15 @@ from ragify.api.main import app
 
 
 class TestStartupMigration(unittest.TestCase):
+    @patch("ragify.api.main.TenantManager")
     @patch("ragify.api.main.KBManager")
-    def test_startup_runs_migration(self, mock_kb_manager_cls):
-        mock_manager = mock_kb_manager_cls.return_value
+    def test_startup_runs_migration(self, mock_kb_manager_cls, mock_tenant_manager_cls):
+        mock_kb_manager = mock_kb_manager_cls.return_value
+        mock_tenant_manager = mock_tenant_manager_cls.return_value
         with TestClient(app):
             pass  # 进入/退出 with 块会触发 startup/shutdown 事件
-        mock_manager.migrate_json_if_needed.assert_called_once()
+        mock_kb_manager.migrate_json_if_needed.assert_called_once()
+        mock_tenant_manager.migrate_default_tenant_if_needed.assert_called_once()
 
 
 if __name__ == "__main__":
