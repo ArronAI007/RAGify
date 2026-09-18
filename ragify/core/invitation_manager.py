@@ -9,6 +9,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
+from sqlalchemy import update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -82,7 +83,13 @@ class InvitationManager:
             row = session.get(TenantInvitationRow, invitation_id)
             if row is None or row.tenant_id != tenant_id:
                 raise ValueError("邀请不存在")
-            row.status = "revoked"
+            result = session.execute(
+                update(TenantInvitationRow)
+                .where(TenantInvitationRow.id == invitation_id, TenantInvitationRow.status == "pending")
+                .values(status="revoked")
+            )
+            if result.rowcount == 0:
+                raise ValueError("这个邀请已经被处理过了，无法撤销")
             session.commit()
 
     def accept_invitation(self, token: str, user_id: str, user_email: str) -> None:
@@ -108,11 +115,28 @@ class InvitationManager:
             if existing is not None:
                 raise ValueError("你已经是这个工作区的成员了")
 
+            # 上面这些检查和下面的写入之间没有原子性——两个并发请求可能都读到
+            # status=="pending"、都通过校验。用条件 UPDATE（WHERE status =
+            # 'pending'）代替"读 status 再直接赋值"，让状态迁移本身是一次
+            # 原子的比较并交换：谁的 UPDATE 先提交，rowcount 就是 1；后到的
+            # 请求这时候再读到的 status 已经不是 pending，UPDATE 会匹配 0 行。
+            # 这不只是同一个邀请被"accept 和 revoke 同时调用"的问题——同一个
+            # token 被两个不同的 user_id 并发 accept 时，(tenant_id, user_id)
+            # 唯一约束根本不会冲突，下面的 IntegrityError 兜底完全不会触发，
+            # 靠它是不够的（这两种场景都用真实并发线程实测过，之前的写法
+            # 100% 复现"两次都成功"）。
+            result = session.execute(
+                update(TenantInvitationRow)
+                .where(TenantInvitationRow.id == row.id, TenantInvitationRow.status == "pending")
+                .values(status="accepted")
+            )
+            if result.rowcount == 0:
+                raise ValueError("这个邀请已经被处理过了")
+
             session.add(TenantAccountJoinRow(
                 id=uuid.uuid4().hex[:12], tenant_id=row.tenant_id, user_id=user_id,
                 role=row.role, created_at=datetime.now(timezone.utc).isoformat(),
             ))
-            row.status = "accepted"
             try:
                 session.commit()
             except IntegrityError:
