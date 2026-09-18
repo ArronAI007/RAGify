@@ -80,8 +80,12 @@ export default function InvitationPage() {
       throw new Error(acceptData.error || "接受邀请失败");
     }
     const after = (await fetchMyTenantIds()) ?? [];
+    // 用"接受前后对比工作区列表"找出新加入的那个（后端 accept 接口不
+    // 返回 tenant_id）。如果两次查询都失败（网络抖动等），after 为空，
+    // 兜底跳根路径而不是拼出 /w/undefined/dashboard 这种无效链接——根
+    // 路径本身会重新探测工作区列表并正确落地。
     const joinedId = after.find((id) => !before.includes(id)) ?? after[0];
-    router.push(`/w/${joinedId}/dashboard`);
+    router.push(joinedId ? `/w/${joinedId}/dashboard` : "/");
   }
 
   async function handleRegisterAndJoin(e: React.FormEvent) {
@@ -97,7 +101,16 @@ export default function InvitationPage() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "注册失败");
-      await acceptAndRedirect();
+      try {
+        await acceptAndRedirect();
+      } catch (e) {
+        // 账号已经注册成功、登录态已建立，只是这次接受邀请失败——不是
+        // "操作失败"从头再来，用户应该重新打开邀请链接重试（此时会走已
+        // 登录分支），不需要再注册一次。
+        throw new Error(
+          `账号已创建成功，但接受邀请失败：${e instanceof Error ? e.message : "请重试"}。请重新打开邀请链接。`
+        );
+      }
     } catch (e) {
       setActionError(e instanceof Error ? e.message : "操作失败");
     } finally {
@@ -118,7 +131,13 @@ export default function InvitationPage() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "登录失败");
-      await acceptAndRedirect();
+      try {
+        await acceptAndRedirect();
+      } catch (e) {
+        throw new Error(
+          `已登录成功，但接受邀请失败：${e instanceof Error ? e.message : "请重试"}。请重新打开邀请链接。`
+        );
+      }
     } catch (e) {
       setActionError(e instanceof Error ? e.message : "操作失败");
     } finally {
