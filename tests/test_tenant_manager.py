@@ -78,6 +78,106 @@ class TestTenantManager(unittest.TestCase):
     def test_list_members_empty_tenant(self):
         self.assertEqual(self.manager.list_members("does-not-exist"), [])
 
+    def test_update_member_role_by_owner(self):
+        tenant = self.manager.create_tenant("工作区", "owner-1")
+        self._add_member(tenant.id, "user-2", "NORMAL")
+        updated = self.manager.update_member_role(tenant.id, "user-2", "EDITOR", acting_role="OWNER")
+        self.assertEqual(updated.role, "EDITOR")
+
+    def test_update_member_role_invalid_role_raises_value_error(self):
+        tenant = self.manager.create_tenant("工作区", "owner-1")
+        with self.assertRaises(ValueError):
+            self.manager.update_member_role(tenant.id, "owner-1", "SUPERUSER", acting_role="OWNER")
+
+    def test_update_member_role_missing_member_raises_value_error(self):
+        tenant = self.manager.create_tenant("工作区", "owner-1")
+        with self.assertRaises(ValueError):
+            self.manager.update_member_role(tenant.id, "ghost", "NORMAL", acting_role="OWNER")
+
+    def test_admin_cannot_promote_to_admin(self):
+        tenant = self.manager.create_tenant("工作区", "owner-1")
+        self._add_member(tenant.id, "user-2", "NORMAL")
+        with self.assertRaises(PermissionError):
+            self.manager.update_member_role(tenant.id, "user-2", "ADMIN", acting_role="ADMIN")
+
+    def test_admin_cannot_modify_another_admin(self):
+        tenant = self.manager.create_tenant("工作区", "owner-1")
+        self._add_member(tenant.id, "admin-2", "ADMIN")
+        with self.assertRaises(PermissionError):
+            self.manager.update_member_role(tenant.id, "admin-2", "NORMAL", acting_role="ADMIN")
+
+    def test_admin_can_promote_normal_to_editor(self):
+        tenant = self.manager.create_tenant("工作区", "owner-1")
+        self._add_member(tenant.id, "user-2", "NORMAL")
+        updated = self.manager.update_member_role(tenant.id, "user-2", "EDITOR", acting_role="ADMIN")
+        self.assertEqual(updated.role, "EDITOR")
+
+    def test_cannot_demote_sole_owner(self):
+        tenant = self.manager.create_tenant("工作区", "owner-1")
+        with self.assertRaises(ValueError):
+            self.manager.update_member_role(tenant.id, "owner-1", "ADMIN", acting_role="OWNER")
+
+    def test_can_demote_owner_when_another_owner_exists(self):
+        tenant = self.manager.create_tenant("工作区", "owner-1")
+        self._add_member(tenant.id, "owner-2", "OWNER")
+        updated = self.manager.update_member_role(tenant.id, "owner-1", "ADMIN", acting_role="OWNER")
+        self.assertEqual(updated.role, "ADMIN")
+
+    def test_remove_member_by_owner(self):
+        tenant = self.manager.create_tenant("工作区", "owner-1")
+        self._add_member(tenant.id, "user-2", "NORMAL")
+        self.manager.remove_member(tenant.id, "user-2", acting_role="OWNER")
+        self.assertIsNone(self.manager.get_membership(tenant.id, "user-2"))
+
+    def test_admin_cannot_remove_owner(self):
+        tenant = self.manager.create_tenant("工作区", "owner-1")
+        self._add_member(tenant.id, "admin-2", "ADMIN")
+        with self.assertRaises(PermissionError):
+            self.manager.remove_member(tenant.id, "owner-1", acting_role="ADMIN")
+
+    def test_cannot_remove_sole_owner(self):
+        tenant = self.manager.create_tenant("工作区", "owner-1")
+        with self.assertRaises(ValueError):
+            self.manager.remove_member(tenant.id, "owner-1", acting_role="OWNER")
+
+    def test_leave_tenant(self):
+        tenant = self.manager.create_tenant("工作区", "owner-1")
+        self._add_member(tenant.id, "user-2", "NORMAL")
+        self.manager.leave_tenant(tenant.id, "user-2")
+        self.assertIsNone(self.manager.get_membership(tenant.id, "user-2"))
+
+    def test_sole_owner_cannot_leave(self):
+        tenant = self.manager.create_tenant("工作区", "owner-1")
+        with self.assertRaises(ValueError):
+            self.manager.leave_tenant(tenant.id, "owner-1")
+
+    def test_owner_can_leave_when_another_owner_exists(self):
+        tenant = self.manager.create_tenant("工作区", "owner-1")
+        self._add_member(tenant.id, "owner-2", "OWNER")
+        self.manager.leave_tenant(tenant.id, "owner-1")
+        self.assertIsNone(self.manager.get_membership(tenant.id, "owner-1"))
+
+    def test_delete_tenant(self):
+        tenant = self.manager.create_tenant("工作区", "owner-1")
+        self.manager.delete_tenant(tenant.id)
+        self.assertIsNone(self.manager.get_tenant(tenant.id))
+        self.assertEqual(self.manager.list_members(tenant.id), [])
+
+    def test_delete_missing_tenant_raises_value_error(self):
+        with self.assertRaises(ValueError):
+            self.manager.delete_tenant("does-not-exist")
+
+    def _add_member(self, tenant_id: str, user_id: str, role: str) -> None:
+        import uuid as uuid_module
+        from datetime import datetime, timezone
+        from ragify.db.models import TenantAccountJoinRow
+        with self.manager._session() as session:
+            session.add(TenantAccountJoinRow(
+                id=uuid_module.uuid4().hex[:12], tenant_id=tenant_id, user_id=user_id,
+                role=role, created_at=datetime.now(timezone.utc).isoformat(),
+            ))
+            session.commit()
+
 
 if __name__ == "__main__":
     unittest.main()
