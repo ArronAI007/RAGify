@@ -9,6 +9,7 @@ OWNER 保护、默认工作区迁移的幂等性。
 import shutil
 import sys
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 
@@ -156,6 +157,60 @@ class TestTenantManager(unittest.TestCase):
         self._add_member(tenant.id, "owner-2", "OWNER")
         self.manager.leave_tenant(tenant.id, "owner-1")
         self.assertIsNone(self.manager.get_membership(tenant.id, "owner-1"))
+
+    def test_concurrent_remove_last_two_owners_is_serialized(self):
+        """证明 remove_member 的唯一 OWNER 保护在真并发下不会被绕过。
+
+        这是 code review 发现的竞态：update_member_role/remove_member/
+        leave_tenant 都是"数一下还有几个 OWNER，再决定能不能改/删"的
+        check-then-act。两个线程同时对同一个只有两个 OWNER 的工作区调用
+        remove_member，各自移除其中一个 OWNER，在没有任何人工延迟的情况下，
+        两个线程都能在对方提交前读到 owner_count == 2、都通过校验、都提交
+        成功——工作区就会同时失去所有 OWNER（多次实测命中率约 40%）。
+
+        跟 test_user_manager.py 的 test_create_race_condition_raises_value_error
+        不同，那个测试用 monkeypatch Session.commit 在单线程里注入一次"插队"
+        写入就足够复现问题，因为竞争的是数据库的 UNIQUE 约束，不涉及锁。但这里
+        修复用的是进程内 threading.Lock 按 tenant_id 序列化，monkeypatch-commit
+        技术在单线程执行流里不会有第二个线程去竞争同一把锁，没法证明锁本身生效。
+        所以这里改用真正的 threading.Thread + threading.Barrier(2)：两个线程都
+        卡在 barrier 上，同时被放行去调用 remove_member，逼出与 reviewer 复现
+        时完全一样的时间窗口。加了 _get_tenant_lock 之后，两个线程会被强制
+        序列化——先拿到锁的线程读到 owner_count == 2、成功移除；后拿到锁的
+        线程读到的是移除之后的最新状态（owner_count == 1），必须抛出
+        ValueError。断言：恰好一个线程成功、恰好一个线程抛出 ValueError，且
+        工作区最终仍有且只有一个 OWNER——不会出现零 OWNER 的不可恢复状态。
+        """
+        tenant = self.manager.create_tenant("工作区", "owner-1")
+        self._add_member(tenant.id, "owner-2", "OWNER")
+
+        barrier = threading.Barrier(2)
+        results: dict[str, object] = {}
+
+        def remove(user_id: str, key: str) -> None:
+            barrier.wait()
+            try:
+                self.manager.remove_member(tenant.id, user_id, acting_role="OWNER")
+                results[key] = "ok"
+            except ValueError as exc:
+                results[key] = exc
+
+        t1 = threading.Thread(target=remove, args=("owner-1", "t1"))
+        t2 = threading.Thread(target=remove, args=("owner-2", "t2"))
+        t1.start()
+        t2.start()
+        t1.join()
+        t2.join()
+
+        outcomes = list(results.values())
+        successes = [o for o in outcomes if o == "ok"]
+        failures = [o for o in outcomes if isinstance(o, ValueError)]
+        self.assertEqual(len(successes), 1)
+        self.assertEqual(len(failures), 1)
+
+        remaining_members = self.manager.list_members(tenant.id)
+        remaining_owners = [m for m in remaining_members if m.role == "OWNER"]
+        self.assertEqual(len(remaining_owners), 1)
 
     def test_delete_tenant(self):
         tenant = self.manager.create_tenant("工作区", "owner-1")

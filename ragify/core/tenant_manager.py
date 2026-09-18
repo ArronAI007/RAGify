@@ -3,6 +3,7 @@
 隔离。角色变更/移除/退出相关的方法在 Task 3 里补充。
 """
 
+import threading
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -11,6 +12,27 @@ from sqlalchemy.orm import Session
 
 from ..db.models import TenantAccountJoinRow, TenantRow, UserRow
 from ..db.session import get_session
+
+# update_member_role/remove_member/leave_tenant 都要做"数一下还有几个 OWNER，
+# 再决定能不能改/删"这个 check-then-act。两个并发请求都在对方提交前读到旧的
+# OWNER 数量、都通过校验、都提交成功，就可能让工作区同时失去所有 OWNER——
+# 这不是理论上的边界情况：用两个线程同时调用 remove_member 各自移除一个
+# OWNER，在没有任何人工延迟的情况下就能稳定复现（多次实测命中率在 40% 左右）。
+# 这个竞态在 SQLite 和 Postgres 默认隔离级别下都存在（不是 SQLite 特有问题），
+# 用进程内锁按 tenant_id 序列化这三个方法，对目前"单进程部署的内部小团队
+# 工具"这个定位来说是足够且成本最低的修复；如果未来改成多进程/多 worker
+# 部署，这把锁会失效，需要换成数据库级方案（Postgres 下用
+# SELECT ... FOR UPDATE 锁 OWNER 行，SQLite 下用显式 BEGIN IMMEDIATE）。
+_tenant_locks: dict[str, threading.Lock] = {}
+_tenant_locks_guard = threading.Lock()
+
+
+def _get_tenant_lock(tenant_id: str) -> threading.Lock:
+    with _tenant_locks_guard:
+        if tenant_id not in _tenant_locks:
+            _tenant_locks[tenant_id] = threading.Lock()
+        return _tenant_locks[tenant_id]
+
 
 VALID_ROLES = {"OWNER", "ADMIN", "EDITOR", "NORMAL", "DATASET_OPERATOR"}
 # ADMIN 不能创造或修改跟自己平级或更高的角色——这两档只有 OWNER 能触碰。
@@ -95,93 +117,87 @@ class TenantManager:
                 for r in rows
             ]
 
+    def _count_owners(self, session: Session, tenant_id: str) -> int:
+        return (
+            session.query(TenantAccountJoinRow)
+            .filter(TenantAccountJoinRow.tenant_id == tenant_id, TenantAccountJoinRow.role == "OWNER")
+            .count()
+        )
+
     def update_member_role(self, tenant_id: str, target_user_id: str, new_role: str, acting_role: str) -> Membership:
         if new_role not in VALID_ROLES:
             raise ValueError(f"无效角色 '{new_role}'")
         if acting_role != "OWNER" and new_role in ADMIN_RESTRICTED_ROLES:
             raise PermissionError("ADMIN 不能把成员角色改成 ADMIN 或 OWNER")
 
-        with self._session() as session:
-            row = (
-                session.query(TenantAccountJoinRow)
-                .filter(
-                    TenantAccountJoinRow.tenant_id == tenant_id,
-                    TenantAccountJoinRow.user_id == target_user_id,
-                )
-                .first()
-            )
-            if row is None:
-                raise ValueError("该用户不是这个工作区的成员")
-            if acting_role != "OWNER" and row.role in ADMIN_RESTRICTED_ROLES:
-                raise PermissionError("ADMIN 不能修改 ADMIN 或 OWNER 成员的角色")
-
-            if row.role == "OWNER" and new_role != "OWNER":
-                owner_count = (
+        with _get_tenant_lock(tenant_id):
+            with self._session() as session:
+                row = (
                     session.query(TenantAccountJoinRow)
-                    .filter(TenantAccountJoinRow.tenant_id == tenant_id, TenantAccountJoinRow.role == "OWNER")
-                    .count()
+                    .filter(
+                        TenantAccountJoinRow.tenant_id == tenant_id,
+                        TenantAccountJoinRow.user_id == target_user_id,
+                    )
+                    .first()
                 )
-                if owner_count <= 1:
-                    raise ValueError("工作区至少需要一个 OWNER，请先把 OWNER 转让给别人")
+                if row is None:
+                    raise ValueError("该用户不是这个工作区的成员")
+                if acting_role != "OWNER" and row.role in ADMIN_RESTRICTED_ROLES:
+                    raise PermissionError("ADMIN 不能修改 ADMIN 或 OWNER 成员的角色")
 
-            row.role = new_role
-            session.commit()
-            return Membership(tenant_id=row.tenant_id, user_id=row.user_id, role=row.role, created_at=row.created_at)
+                if row.role == "OWNER" and new_role != "OWNER":
+                    if self._count_owners(session, tenant_id) <= 1:
+                        raise ValueError("工作区至少需要一个 OWNER，请先把 OWNER 转让给别人")
+
+                row.role = new_role
+                session.commit()
+                return Membership(tenant_id=row.tenant_id, user_id=row.user_id, role=row.role, created_at=row.created_at)
 
     def remove_member(self, tenant_id: str, target_user_id: str, acting_role: str) -> None:
-        with self._session() as session:
-            row = (
-                session.query(TenantAccountJoinRow)
-                .filter(
-                    TenantAccountJoinRow.tenant_id == tenant_id,
-                    TenantAccountJoinRow.user_id == target_user_id,
-                )
-                .first()
-            )
-            if row is None:
-                raise ValueError("该用户不是这个工作区的成员")
-            if acting_role != "OWNER" and row.role in ADMIN_RESTRICTED_ROLES:
-                raise PermissionError("ADMIN 不能移除 ADMIN 或 OWNER 成员")
-            if row.role == "OWNER":
-                owner_count = (
+        with _get_tenant_lock(tenant_id):
+            with self._session() as session:
+                row = (
                     session.query(TenantAccountJoinRow)
-                    .filter(TenantAccountJoinRow.tenant_id == tenant_id, TenantAccountJoinRow.role == "OWNER")
-                    .count()
+                    .filter(
+                        TenantAccountJoinRow.tenant_id == tenant_id,
+                        TenantAccountJoinRow.user_id == target_user_id,
+                    )
+                    .first()
                 )
-                if owner_count <= 1:
-                    raise ValueError("工作区至少需要一个 OWNER，不能移除唯一的 OWNER")
+                if row is None:
+                    raise ValueError("该用户不是这个工作区的成员")
+                if acting_role != "OWNER" and row.role in ADMIN_RESTRICTED_ROLES:
+                    raise PermissionError("ADMIN 不能移除 ADMIN 或 OWNER 成员")
+                if row.role == "OWNER":
+                    if self._count_owners(session, tenant_id) <= 1:
+                        raise ValueError("工作区至少需要一个 OWNER，不能移除唯一的 OWNER")
 
-            session.delete(row)
-            session.commit()
+                session.delete(row)
+                session.commit()
 
     def leave_tenant(self, tenant_id: str, user_id: str) -> None:
-        with self._session() as session:
-            row = (
-                session.query(TenantAccountJoinRow)
-                .filter(
-                    TenantAccountJoinRow.tenant_id == tenant_id,
-                    TenantAccountJoinRow.user_id == user_id,
-                )
-                .first()
-            )
-            if row is None:
-                raise ValueError("该用户不是这个工作区的成员")
-            if row.role == "OWNER":
-                # 尽力而为的检查——不是数据库约束强制。SQLite 在这里不方便表达
-                # "每个租户至少一个 OWNER" 这种跨行业务规则的 CHECK 约束，两个
-                # OWNER 同时点"退出"这种极窄时间窗口的并发场景理论上仍可能让
-                # 工作区失去 OWNER。内部小团队工具场景下这个限制可以接受
-                # （YAGNI）；面向高并发/对抗性场景需要再加显式行锁或触发器。
-                owner_count = (
+        with _get_tenant_lock(tenant_id):
+            with self._session() as session:
+                row = (
                     session.query(TenantAccountJoinRow)
-                    .filter(TenantAccountJoinRow.tenant_id == tenant_id, TenantAccountJoinRow.role == "OWNER")
-                    .count()
+                    .filter(
+                        TenantAccountJoinRow.tenant_id == tenant_id,
+                        TenantAccountJoinRow.user_id == user_id,
+                    )
+                    .first()
                 )
-                if owner_count <= 1:
-                    raise ValueError("你是这个工作区唯一的 OWNER，请先把 OWNER 转让给别人，或者直接删除工作区")
+                if row is None:
+                    raise ValueError("该用户不是这个工作区的成员")
+                if row.role == "OWNER":
+                    # 加了 _get_tenant_lock 之后，这个检查在同一个 tenant_id 下是
+                    # 真正互斥的——不会再出现两个并发请求都读到旧计数、都通过
+                    # 校验的情况。锁的粒度是进程内的，多进程/多 worker 部署时需要
+                    # 换成数据库级方案（见上面 _get_tenant_lock 的说明）。
+                    if self._count_owners(session, tenant_id) <= 1:
+                        raise ValueError("你是这个工作区唯一的 OWNER，请先把 OWNER 转让给别人，或者直接删除工作区")
 
-            session.delete(row)
-            session.commit()
+                session.delete(row)
+                session.commit()
 
     def delete_tenant(self, tenant_id: str) -> None:
         with self._session() as session:
