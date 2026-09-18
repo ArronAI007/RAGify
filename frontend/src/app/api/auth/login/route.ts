@@ -19,6 +19,9 @@ export async function POST(req: NextRequest) {
     setAuthCookie(response, result.access_token);
     return response;
   } catch (e) {
-    return NextResponse.json({ error: String(e) }, { status: 500 });
+    return NextResponse.json(
+      { error: e instanceof Error ? e.message : String(e) },
+      { status: 500 }
+    );
   }
 }
