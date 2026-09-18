@@ -18,4 +18,7 @@ app.include_router(health.router)
 @app.on_event("startup")
 def _migrate_legacy_json_on_startup() -> None:
     KBManager().migrate_json_if_needed()
-    TenantManager().migrate_default_tenant_if_needed()
+    tenant_manager = TenantManager()
+    tenant_manager.migrate_default_tenant_if_needed()
+    KBManager().migrate_tenant_id_if_needed(tenant_manager)
+    KBManager().migrate_vectorstore_layout_if_needed()

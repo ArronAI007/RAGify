@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""验证 FastAPI 启动事件会调用一次 KBManager.migrate_json_if_needed() 和
-TenantManager.migrate_default_tenant_if_needed()。"""
+"""验证 FastAPI 启动事件会依次调用 KBManager.migrate_json_if_needed()、
+TenantManager.migrate_default_tenant_if_needed()、
+KBManager.migrate_tenant_id_if_needed()、
+KBManager.migrate_vectorstore_layout_if_needed()。"""
 
 import sys
 import unittest
@@ -25,6 +27,8 @@ class TestStartupMigration(unittest.TestCase):
             pass  # 进入/退出 with 块会触发 startup/shutdown 事件
         mock_kb_manager.migrate_json_if_needed.assert_called_once()
         mock_tenant_manager.migrate_default_tenant_if_needed.assert_called_once()
+        mock_kb_manager.migrate_tenant_id_if_needed.assert_called_once_with(mock_tenant_manager)
+        mock_kb_manager.migrate_vectorstore_layout_if_needed.assert_called_once()
 
 
 if __name__ == "__main__":
