@@ -97,12 +97,26 @@ def _migrate_legacy_json_on_startup() -> None:
   - **一个需要堵住的空隙**：Phase 3 的默认工作区迁移只在应用第一次启动时，把"当时已存在"的用户拉进默认工作区——Phase 4 上线之后新注册的用户不会自动进入任何工作区，"自动选第一个工作区"这个前端逻辑届时会无处可选。为此，注册表单提交成功后，登录页会紧接着调用一次 `POST /api/tenants`（Phase 3 已有的接口，任何登录用户都能自建工作区），用一个默认名字（比如"{用户名}的工作区"）建一个工作区，再跳转回首页——保证每个新注册的用户落地时手上都已经有一个工作区，不需要额外的"创建工作区"UI。
 - 新增 `frontend/src/middleware.ts`：检查请求是否带着认证 cookie，没带且访问的不是 `/login`/`/api/auth/*` 就重定向到 `/login`。这样仪表盘、知识库、问答这几个现有页面自动获得"未登录先跳登录页"的行为，不需要改动它们自己的代码。
 
+### MCP 服务的租户识别（Phase 1 遗留的另一个入口）
+
+`ragify/mcp_server/server.py`（Phase 1 建的独立 MCP 工具调用入口，走 stdio，不是 HTTP 路由）现在调用 `KBManager.list_all()`/其他方法时也需要 `tenant_id`，但它没有 HTTP 请求那种"每次请求带 Authorization 头"的机制——一个 MCP server 进程的生命周期从启动到退出，逻辑上对应"一个人的一次使用会话"，跟 HTTP 服务"每个请求可能是不同人"的模型不一样。
+
+**方案**：MCP server 启动时读一个新的环境变量 `RAGIFY_MCP_TOKEN`，值是用户通过已有的 `/api/auth/login` 拿到的真实 JWT（跟浏览器登录用的是同一套 token，没有引入新的密钥类型）。启动流程：
+
+1. 用已有的 `ragify.core.security.decode_access_token` 解码这个 token，拿到 `user_id`。解码失败（token 无效/过期/环境变量没设）——**启动直接失败并报清晰的错误信息**，不静默降级、不假装继续跑，跟这个项目一贯的"配置缺失就明确报错"原则一致（对照 SMTP、JWT secret 未配置时的处理方式）。
+2. 用 `UserManager.get_by_id(user_id)` 查用户是否还存在。
+3. 用 `TenantManager.list_tenants_for_user(user.id)` 拿这个用户所属的工作区列表，取第一个当作这次 MCP 会话全程使用的 `tenant_id`（跟前端代理层"自动选第一个工作区"是同一个约定）。用户名下一个工作区都没有——同样启动失败报错，不是静默创建一个。
+4. 这个 `tenant_id` 在 MCP server 进程存活期间不变，所有工具调用都用它。
+
+**已知的、刻意接受的局限**：JWT 有效期 7 天（Phase 2 定的，没有 refresh token），如果 MCP server 进程运行超过 7 天，token 过期对已经启动完成的进程没有影响（只在启动时解码校验一次，不是每次调用都验证）——但如果进程重启，就需要一个新鲜的 token。对内部小团队工具的使用场景（用户自己配置 MCP client、进程通常不会连续跑几个月不重启）这个限制可以接受，不为此引入 refresh token 机制。
+
 ## 测试策略
 
 - `tests/test_kb_manager.py` 现有测试全部要改成带 `tenant_id` 参数（现有测试目前假设知识库全局唯一，这些测试要跟着新签名调整），并新增"同名知识库在不同工作区都能建成功""不同工作区互相看不到对方的知识库""按 kb_id 查询时如果 tenant_id 不匹配要当不存在处理"这几类新测试。
 - 新增覆盖 `migrate_tenant_id_if_needed`（有工作区/没工作区两种情况）和 `migrate_vectorstore_layout_if_needed`（需要真实建临时文件测试 `shutil.move`）的幂等性测试。
 - `tests/test_api_kb.py`/`test_api_query.py`/`test_api_documents.py` 现有测试改成走新 URL 形状 + 带 `Authorization` 头，新增权限矩阵的 403 场景（比如 NORMAL 建知识库应该 403，DATASET_OPERATOR 建知识库应该 403 但上传文档应该 200）。
 - 前端：`frontend/src/app/login/page.tsx` 和 `middleware.ts` 沿用 Phase 1/2 已确立的"不引入新前端测试框架、手动验证"的方式（这个项目至今没有给任何前端页面写过自动化测试）。
+- `ragify/mcp_server/server.py` 的启动期认证：新增测试覆盖 token 缺失/无效/用户不存在/用户无工作区这几种启动失败场景，以及正常场景下解出的 `tenant_id` 确实被传给后续的 `KBManager` 调用。
 
 ## 不在本阶段范围内
 
