@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useCallback, useEffect } from "react";
+import { useParams } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Upload, FileText, Trash2, Loader2, Plus, Database,
@@ -46,6 +47,7 @@ function formatSize(bytes: number): string {
 }
 
 export default function KnowledgeBasePage() {
+  const { tenantId } = useParams<{ tenantId: string }>();
   const [kbs, setKBs] = useState<KnowledgeBase[]>([]);
   const [selectedKBId, setSelectedKBId] = useState<string | null>(null);
   const [kbsLoading, setKBsLoading] = useState(true);
@@ -79,7 +81,7 @@ export default function KnowledgeBasePage() {
   const loadKBs = useCallback(async () => {
     setKBsLoading(true);
     try {
-      const res = await listKBs();
+      const res = await listKBs(tenantId);
       setKBs(res.knowledge_bases);
       if (res.knowledge_bases.length > 0 && !selectedKBId) {
         setSelectedKBId(res.knowledge_bases[0].id);
@@ -97,8 +99,8 @@ export default function KnowledgeBasePage() {
     setDocsLoading(true);
     try {
       const [s, docs] = await Promise.all([
-        getStats(selectedKBId),
-        getDocuments(selectedKBId),
+        getStats(tenantId, selectedKBId),
+        getDocuments(tenantId, selectedKBId),
       ]);
       setStats(s);
       setDocuments(docs.documents);
@@ -116,7 +118,7 @@ export default function KnowledgeBasePage() {
     if (!newKBName.trim()) return;
     setCreating(true);
     try {
-      const kb = await createKB(newKBName.trim(), newKBDesc.trim());
+      const kb = await createKB(tenantId, newKBName.trim(), newKBDesc.trim());
       setKBs((prev) => [...prev, { ...kb, doc_count: 0 }]);
       setSelectedKBId(kb.id);
       setCreateOpen(false);
@@ -134,7 +136,7 @@ export default function KnowledgeBasePage() {
     if (!selectedKBId) return;
     setDeleting(true);
     try {
-      await deleteKB(selectedKBId);
+      await deleteKB(tenantId, selectedKBId);
       const remaining = kbs.filter((k) => k.id !== selectedKBId);
       setKBs(remaining);
       setSelectedKBId(remaining.length > 0 ? remaining[0].id : null);
@@ -175,7 +177,7 @@ export default function KnowledgeBasePage() {
       setPendingFiles([]);
 
       // Index only the newly uploaded files
-      const indexResult = await indexFiles(result.saved, false, selectedKBId);
+      const indexResult = await indexFiles(tenantId, result.saved, false, selectedKBId);
       setProgress(100);
       toast.success(
         `已上传并索引 ${result.saved.length} 个文件（${indexResult.total_chunks_generated} 个分块）`
@@ -194,7 +196,7 @@ export default function KnowledgeBasePage() {
     if (!selectedKBId) return;
     setDeletingDoc(source);
     try {
-      await deleteDocument(source, selectedKBId);
+      await deleteDocument(tenantId, source, selectedKBId);
       // Optimistic local update — no full page refresh
       const deletedDoc = documents.find((d) => d.source === source);
       setDocuments((prev) => prev.filter((d) => d.source !== source));
@@ -229,7 +231,7 @@ export default function KnowledgeBasePage() {
     setChunksLoading(true);
     setEditingChunkId(null);
     try {
-      const res = await getChunks(source, selectedKBId ?? undefined);
+      const res = await getChunks(tenantId, source, selectedKBId ?? undefined);
       setChunks(res.chunks);
     } catch {
       toast.error("加载分块失败");
@@ -252,12 +254,12 @@ export default function KnowledgeBasePage() {
     if (!editContent.trim()) return;
     setSavingChunk(true);
     try {
-      await updateChunk(chunkId, editContent, selectedKBId ?? undefined);
+      await updateChunk(tenantId, chunkId, editContent, selectedKBId ?? undefined);
       setEditingChunkId(null);
       toast.success("分块已更新");
       // Refetch — FAISS renumbers indices after delete+add
       if (expandedDoc) {
-        const res = await getChunks(expandedDoc, selectedKBId ?? undefined);
+        const res = await getChunks(tenantId, expandedDoc, selectedKBId ?? undefined);
         setChunks(res.chunks);
       }
     } catch (e) {
@@ -272,7 +274,7 @@ export default function KnowledgeBasePage() {
     setIndexing(true);
     setProgress(20);
     try {
-      const result = await indexFiles([], true, selectedKBId);
+      const result = await indexFiles(tenantId, [], true, selectedKBId);
       setProgress(100);
       toast.success(`已索引 ${result.total_documents_indexed} 个文档（${result.total_chunks_generated} 个分块）`);
       await loadDocs();
@@ -289,7 +291,7 @@ export default function KnowledgeBasePage() {
     if (!selectedKBId) return;
     setClearing(true);
     try {
-      await clearIndex(selectedKBId);
+      await clearIndex(tenantId, selectedKBId);
       setDocuments([]);
       setStats(null);
       toast.success("已清空索引");
