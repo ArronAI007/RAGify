@@ -10,6 +10,7 @@ import json
 import shutil
 import sys
 import tempfile
+import threading
 import unittest
 import uuid
 from datetime import datetime, timezone
@@ -95,6 +96,39 @@ class TestKBManager(unittest.TestCase):
         with patch.object(Session, "commit", racing_commit):
             with self.assertRaises(ValueError):
                 self.manager.create(name, "", TENANT_A)
+
+    def test_concurrent_create_different_case_same_name_only_one_succeeds(self):
+        """证明大小写不同但视为同名的并发创建不会绕过工作区内唯一约束。
+        两个线程同时对同一个 tenant 调用 create("KB", ...) 和 create("kb", ...)。
+        数据库的 UniqueConstraint(tenant_id, name) 本身是大小写敏感的，不会
+        拦住这一对；靠 create() 内部按 tenant_id 加的锁把两次调用强制序列化，
+        后执行的那次在锁内重新读到已经存在的名字，必须失败。"""
+        barrier = threading.Barrier(2)
+        results: dict[str, object] = {}
+
+        def create_variant(variant_name: str, key: str) -> None:
+            barrier.wait()
+            try:
+                kb = self.manager.create(variant_name, "", TENANT_A)
+                results[key] = kb
+            except ValueError as exc:
+                results[key] = exc
+
+        t1 = threading.Thread(target=create_variant, args=("KB", "upper"))
+        t2 = threading.Thread(target=create_variant, args=("kb", "lower"))
+        t1.start()
+        t2.start()
+        t1.join()
+        t2.join()
+
+        outcomes = list(results.values())
+        successes = [o for o in outcomes if not isinstance(o, Exception)]
+        failures = [o for o in outcomes if isinstance(o, ValueError)]
+        self.assertEqual(len(successes), 1)
+        self.assertEqual(len(failures), 1)
+
+        remaining = self.manager.list_all(TENANT_A)
+        self.assertEqual(len(remaining), 1)
 
     def test_list_all_empty(self):
         self.assertEqual(self.manager.list_all(TENANT_A), [])

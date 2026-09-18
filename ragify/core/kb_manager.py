@@ -1,6 +1,7 @@
 import json
 import logging
 import shutil
+import threading
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -15,6 +16,26 @@ from ..db.session import get_session
 logger = logging.getLogger("ragify.core.kb_manager")
 
 DEFAULT_VECTORSTORE_DIR = Path("vectorstore")
+
+# create() 先做一次 Python 层的大小写不敏感重名检查，再 insert。数据库的
+# UniqueConstraint("tenant_id", "name") 是大小写敏感的（SQLite 默认
+# collation），所以两个并发的 create() 调用如果用的是大小写不同但
+# lower() 后相同的名字（比如 "KB" 和 "kb"），DB 约束完全不会拦截——两行
+# 都能插入成功，Python 层的重名检查在这种并发窗口下形同虚设（已用
+# monkeypatch Session.commit 实测复现）。按 tenant_id 加一把进程内锁，把
+# "查重复 + insert" 这段逻辑序列化，跟 ragify/core/tenant_manager.py 里
+# _get_tenant_lock 解决类似问题用的是同一个模式——但这里用独立的锁注册表，
+# 不跟 TenantManager 共享，因为两者保护的是完全不相关的资源，共享一把锁
+# 会让"邀请成员"这种操作被"建知识库"无谓地阻塞。
+_kb_tenant_locks: dict[str, threading.Lock] = {}
+_kb_tenant_locks_guard = threading.Lock()
+
+
+def _get_kb_tenant_lock(tenant_id: str) -> threading.Lock:
+    with _kb_tenant_locks_guard:
+        if tenant_id not in _kb_tenant_locks:
+            _kb_tenant_locks[tenant_id] = threading.Lock()
+        return _kb_tenant_locks[tenant_id]
 
 
 @dataclass
@@ -106,33 +127,34 @@ class KBManager:
         if not name:
             raise ValueError("知识库名称不能为空")
 
-        with self._session() as session:
-            existing = {
-                row.name.lower() for row in
-                session.query(KnowledgeBaseRow).filter(KnowledgeBaseRow.tenant_id == tenant_id).all()
-            }
-            if name.lower() in existing:
-                raise ValueError(f"知识库 '{name}' 已存在")
+        with _get_kb_tenant_lock(tenant_id):
+            with self._session() as session:
+                existing = {
+                    row.name.lower() for row in
+                    session.query(KnowledgeBaseRow).filter(KnowledgeBaseRow.tenant_id == tenant_id).all()
+                }
+                if name.lower() in existing:
+                    raise ValueError(f"知识库 '{name}' 已存在")
 
-            kb_id = uuid.uuid4().hex[:12]
-            created_at = datetime.now(timezone.utc).isoformat()
-            description = description.strip()
-            session.add(KnowledgeBaseRow(
-                id=kb_id, tenant_id=tenant_id, name=name, description=description, created_at=created_at,
-            ))
-            try:
-                session.commit()
-            except IntegrityError:
-                session.rollback()
-                raise ValueError(f"知识库 '{name}' 已存在")
-            result = KnowledgeBase(
-                id=kb_id, tenant_id=tenant_id, name=name, description=description, created_at=created_at,
-            )
+                kb_id = uuid.uuid4().hex[:12]
+                created_at = datetime.now(timezone.utc).isoformat()
+                description = description.strip()
+                session.add(KnowledgeBaseRow(
+                    id=kb_id, tenant_id=tenant_id, name=name, description=description, created_at=created_at,
+                ))
+                try:
+                    session.commit()
+                except IntegrityError:
+                    session.rollback()
+                    raise ValueError(f"知识库 '{name}' 已存在")
+                result = KnowledgeBase(
+                    id=kb_id, tenant_id=tenant_id, name=name, description=description, created_at=created_at,
+                )
 
-        kb_dir = self.vectorstore_dir / tenant_id / kb_id
-        kb_dir.mkdir(parents=True, exist_ok=True)
-        logger.info("创建知识库 '%s' (%s)，工作区 %s", name, kb_id, tenant_id)
-        return result
+            kb_dir = self.vectorstore_dir / tenant_id / kb_id
+            kb_dir.mkdir(parents=True, exist_ok=True)
+            logger.info("创建知识库 '%s' (%s)，工作区 %s", name, kb_id, tenant_id)
+            return result
 
     def delete(self, kb_id: str, tenant_id: str) -> bool:
         with self._session() as session:
