@@ -220,7 +220,22 @@ class KBManager:
         for kb_id, tenant_id in kb_infos:
             flat_dir = self.vectorstore_dir / kb_id
             nested_dir = self.vectorstore_dir / tenant_id / kb_id
-            if not flat_dir.exists() or nested_dir.exists():
+            if nested_dir.exists():
+                if flat_dir.exists():
+                    # shutil.move 只有走 os.rename 那条路径才是真正原子的；
+                    # 遇到跨文件系统/权限问题等 OSError 时它会静默退化成
+                    # copytree+rmtree，这条路径不是原子的，中途被打断（磁盘
+                    # 满、进程被杀）会留下一个不完整的 nested_dir。此时
+                    # flat_dir 和 nested_dir 同时存在，是这次迁移曾经被打断
+                    # 过的信号——不能当成"已经迁移完成"直接跳过，否则应用会
+                    # 永久加载一个残缺的向量库，且没有任何提示。
+                    raise RuntimeError(
+                        f"检测到知识库 {kb_id} 的迁移残留：{flat_dir} 和 {nested_dir} "
+                        "同时存在（上一次迁移可能被中途打断），需要人工确认后再清理，"
+                        "不能自动判断该保留哪一份。"
+                    )
+                continue
+            if not flat_dir.exists():
                 continue
             nested_dir.parent.mkdir(parents=True, exist_ok=True)
             shutil.move(str(flat_dir), str(nested_dir))

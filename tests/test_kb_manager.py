@@ -318,6 +318,22 @@ class TestKBManager(unittest.TestCase):
         self.assertFalse(migrated)
         self.assertTrue(flat_dir.exists())
 
+    def test_migrate_vectorstore_layout_raises_on_interrupted_migration_leftover(self):
+        """证明"扁平目录和分层目录同时存在"这种迁移中途被打断留下的残留
+        状态会被明确报错，而不是被 nested_dir.exists() 这个短路条件当成
+        "已经迁移完成"悄悄放过——否则应用会永久加载一份不完整的向量库，
+        且没有任何提示（code review 用真实 shutil.move 的 copytree 兜底
+        路径中途失败复现过这个问题）。"""
+        kb = self.manager.create("知识库", "", TENANT_A)
+        nested_dir = Path(self.manager.get_persist_dir(TENANT_A, kb.id))
+        flat_dir = self.vectorstore_dir / kb.id
+        # 手工模拟"迁移中途被打断"：扁平目录和分层目录都留着。
+        flat_dir.mkdir(parents=True, exist_ok=True)
+        (flat_dir / "index.faiss").write_text("fake-index", encoding="utf-8")
+
+        with self.assertRaises(RuntimeError):
+            self.manager.migrate_vectorstore_layout_if_needed()
+
 
 if __name__ == "__main__":
     unittest.main()
