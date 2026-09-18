@@ -16,6 +16,6 @@ export const config = {
   // 重定向到 /login（一个 HTML 页面），前端 fetch 期待的是 JSON 响应，
   // 会直接在解析阶段报错，而不是拿到一个清晰的"未登录"信号。
   matcher: [
-    "/((?!api|login|_next/static|_next/image|favicon.ico).*)",
+    "/((?!api|login|invitations|_next/static|_next/image|favicon.ico).*)",
   ],
 };
