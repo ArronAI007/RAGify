@@ -207,3 +207,23 @@ class TenantManager:
             session.query(TenantAccountJoinRow).filter(TenantAccountJoinRow.tenant_id == tenant_id).delete()
             session.delete(tenant)
             session.commit()
+
+    def migrate_default_tenant_if_needed(self) -> bool:
+        with self._session() as session:
+            if session.query(TenantRow).first() is not None:
+                return False
+            users = session.query(UserRow).order_by(UserRow.created_at.asc()).all()
+            if not users:
+                return False
+
+            tenant_id = uuid.uuid4().hex[:12]
+            created_at = datetime.now(timezone.utc).isoformat()
+            session.add(TenantRow(id=tenant_id, name="默认工作区", created_at=created_at))
+            for index, user in enumerate(users):
+                role = "OWNER" if index == 0 else "ADMIN"
+                session.add(TenantAccountJoinRow(
+                    id=uuid.uuid4().hex[:12], tenant_id=tenant_id, user_id=user.id,
+                    role=role, created_at=created_at,
+                ))
+            session.commit()
+        return True

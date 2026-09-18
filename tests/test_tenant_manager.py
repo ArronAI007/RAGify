@@ -222,6 +222,43 @@ class TestTenantManager(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.manager.delete_tenant("does-not-exist")
 
+    def test_migrate_default_tenant_creates_default_workspace(self):
+        self._insert_user("user-1", "2024-01-01T00:00:00+00:00")
+        self._insert_user("user-2", "2024-01-02T00:00:00+00:00")
+
+        migrated = self.manager.migrate_default_tenant_if_needed()
+
+        self.assertTrue(migrated)
+        tenants = self.manager.list_tenants_for_user("user-1")
+        self.assertEqual(len(tenants), 1)
+        self.assertEqual(tenants[0].name, "默认工作区")
+
+        owner_membership = self.manager.get_membership(tenants[0].id, "user-1")
+        self.assertEqual(owner_membership.role, "OWNER")
+        admin_membership = self.manager.get_membership(tenants[0].id, "user-2")
+        self.assertEqual(admin_membership.role, "ADMIN")
+
+    def test_migrate_default_tenant_noop_when_tenant_exists(self):
+        self._insert_user("user-1", "2024-01-01T00:00:00+00:00")
+        self.manager.create_tenant("已有工作区", "user-1")
+
+        migrated = self.manager.migrate_default_tenant_if_needed()
+
+        self.assertFalse(migrated)
+        self.assertEqual(len(self.manager.list_tenants_for_user("user-1")), 1)
+
+    def test_migrate_default_tenant_noop_when_no_users(self):
+        self.assertFalse(self.manager.migrate_default_tenant_if_needed())
+
+    def _insert_user(self, user_id: str, created_at: str) -> None:
+        from ragify.db.models import UserRow
+        with self.manager._session() as session:
+            session.add(UserRow(
+                id=user_id, email=f"{user_id}@example.com", password_hash="x",
+                name=user_id, created_at=created_at,
+            ))
+            session.commit()
+
     def _add_member(self, tenant_id: str, user_id: str, role: str) -> None:
         import uuid as uuid_module
         from datetime import datetime, timezone
