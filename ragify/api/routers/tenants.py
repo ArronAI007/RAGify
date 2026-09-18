@@ -134,6 +134,8 @@ def create_invitation(
         raise HTTPException(status_code=403, detail="ADMIN 不能邀请成员为 ADMIN 或 OWNER")
 
     tenant = tenant_manager.get_tenant(tenant_id)
+    if tenant is None:
+        raise HTTPException(status_code=404, detail="工作区不存在")
     invitation = invitation_manager.create_invitation(tenant_id, body.email, body.role, current_user.id)
 
     frontend_url = os.environ.get("RAGIFY_FRONTEND_URL", "http://localhost:3000")
@@ -141,6 +143,10 @@ def create_invitation(
     try:
         send_invitation_email(invitation.email, tenant.name, current_user.name, invite_url)
     except Exception as e:
+        # 发信失败时把刚建的邀请撤销掉，避免留下一个"看起来 pending、其实
+        # 邮件从没发出去"的幽灵邀请记录——调用方已经收到 400 说明失败了，
+        # 数据库里不该假装邀请还在等待处理。
+        invitation_manager.revoke_invitation(tenant_id, invitation.id)
         raise HTTPException(status_code=400, detail=f"邮件服务未配置或发送失败：{e}")
 
     return {
