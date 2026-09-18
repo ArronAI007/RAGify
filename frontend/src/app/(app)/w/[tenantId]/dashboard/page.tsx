@@ -36,7 +36,7 @@ export default function DashboardPage() {
       }
     }
     load();
-  }, []);
+  }, [tenantId]);
 
   const totalDocs = kbs.reduce((sum, kb) => sum + (kb.doc_count ?? 0), 0);
 
