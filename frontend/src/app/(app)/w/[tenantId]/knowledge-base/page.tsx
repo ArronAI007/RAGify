@@ -78,6 +78,10 @@ export default function KnowledgeBasePage() {
   const [dragOver, setDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // 切换工作区时清空选中的知识库——否则会带着上一个工作区的 kbId 去
+  // 请求新工作区的数据，交给 loadKBs 的自动选中逻辑重新接管。
+  useEffect(() => { setSelectedKBId(null); }, [tenantId]);
+
   const loadKBs = useCallback(async () => {
     setKBsLoading(true);
     try {
@@ -90,9 +94,9 @@ export default function KnowledgeBasePage() {
     } finally {
       setKBsLoading(false);
     }
-  }, [selectedKBId]);
+  }, [tenantId, selectedKBId]);
 
-  useEffect(() => { loadKBs(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { loadKBs(); }, [loadKBs]);
 
   const loadDocs = useCallback(async () => {
     if (!selectedKBId) return;
@@ -108,7 +112,7 @@ export default function KnowledgeBasePage() {
     } finally {
       setDocsLoading(false);
     }
-  }, [selectedKBId]);
+  }, [tenantId, selectedKBId]);
 
   useEffect(() => { loadDocs(); }, [loadDocs]);
 
