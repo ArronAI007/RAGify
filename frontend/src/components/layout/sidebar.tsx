@@ -16,17 +16,12 @@ import {
   Database,
   MessageSquare,
   Settings,
+  Users,
   Search,
   Sparkles,
   Menu,
 } from "lucide-react";
-
-const navItems = [
-  { href: "/", label: "仪表盘", icon: LayoutDashboard },
-  { href: "/knowledge-base", label: "知识库", icon: Database },
-  { href: "/qa", label: "智能问答", icon: MessageSquare },
-  { href: "/settings", label: "系统设置", icon: Settings },
-];
+import { WorkspaceSwitcher, type TenantSummary } from "@/components/layout/workspace-switcher";
 
 function Brand() {
   return (
@@ -42,13 +37,30 @@ function Brand() {
   );
 }
 
-function NavLinks({ pathname, onNavigate }: { pathname: string; onNavigate?: () => void }) {
+function buildNavItems(tenantId: string) {
+  return [
+    { href: `/w/${tenantId}/dashboard`, label: "仪表盘", icon: LayoutDashboard },
+    { href: `/w/${tenantId}/knowledge-base`, label: "知识库", icon: Database },
+    { href: `/w/${tenantId}/qa`, label: "智能问答", icon: MessageSquare },
+    { href: `/w/${tenantId}/members`, label: "成员", icon: Users },
+    { href: `/w/${tenantId}/settings`, label: "系统设置", icon: Settings },
+  ];
+}
+
+function NavLinks({
+  pathname,
+  tenantId,
+  onNavigate,
+}: {
+  pathname: string;
+  tenantId: string;
+  onNavigate?: () => void;
+}) {
+  const navItems = buildNavItems(tenantId);
   return (
     <nav className="flex-1 space-y-1 px-3 py-4">
       {navItems.map((item) => {
-        const isActive =
-          pathname === item.href ||
-          (item.href !== "/" && pathname.startsWith(item.href));
+        const isActive = pathname === item.href || pathname.startsWith(`${item.href}/`);
         return (
           <Link
             key={item.href}
@@ -87,7 +99,13 @@ function Footer() {
   );
 }
 
-export function Sidebar() {
+export function Sidebar({
+  tenants,
+  currentTenantId,
+}: {
+  tenants: TenantSummary[];
+  currentTenantId: string;
+}) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
 
@@ -96,7 +114,8 @@ export function Sidebar() {
       {/* 桌面端：固定侧边栏 */}
       <aside className="fixed left-0 top-0 z-40 hidden h-screen w-64 flex-col border-r border-border bg-sidebar lg:flex">
         <Brand />
-        <NavLinks pathname={pathname} />
+        <WorkspaceSwitcher tenants={tenants} currentTenantId={currentTenantId} />
+        <NavLinks pathname={pathname} tenantId={currentTenantId} />
         <Footer />
       </aside>
 
@@ -116,7 +135,8 @@ export function Sidebar() {
               <SheetTitle>导航菜单</SheetTitle>
             </SheetHeader>
             <Brand />
-            <NavLinks pathname={pathname} onNavigate={() => setOpen(false)} />
+            <WorkspaceSwitcher tenants={tenants} currentTenantId={currentTenantId} />
+            <NavLinks pathname={pathname} tenantId={currentTenantId} onNavigate={() => setOpen(false)} />
             <Footer />
           </SheetContent>
         </Sheet>
