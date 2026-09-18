@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { callBackend } from "@/lib/backend";
+import { callBackend, BackendError } from "@/lib/backend";
 import { AUTH_COOKIE_NAME } from "@/lib/auth-cookie";
 
 export async function POST(req: NextRequest) {
@@ -16,6 +16,7 @@ export async function POST(req: NextRequest) {
     );
     return NextResponse.json(result);
   } catch (e) {
-    return NextResponse.json({ error: String(e) }, { status: 500 });
+    const status = e instanceof BackendError ? e.status : 500;
+    return NextResponse.json({ error: e instanceof Error ? e.message : String(e) }, { status });
   }
 }
