@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 """send_invitation_email 的纯函数测试，mock smtplib.SMTP，不真的发邮件。"""
 
+import email
 import sys
 import unittest
 from pathlib import Path
@@ -38,8 +39,17 @@ class TestMailer(unittest.TestCase):
         args, _ = mock_server.sendmail.call_args
         self.assertEqual(args[0], "noreply@example.com")
         self.assertEqual(args[1], ["invitee@example.com"])
-        self.assertIn("邀请人", args[2])
-        self.assertIn("http://localhost:3000/invitations/abc123", args[2])
+
+        # sendmail() 现在收到的是 bytes（as_bytes()，规避 smtplib 对 str 强制
+        # ascii 编码导致中文内容崩溃的问题），所以不能直接对 args[2] 做字面
+        # 子串匹配——base64 编码后的内容本身就不包含可见的原文。这里把发出去
+        # 的字节解析回真正的邮件对象，解码 payload，验证收件人最终能读到的
+        # 内容是正确的原文，而不只是断言某个中间编码格式的字符串里有什么。
+        self.assertIsInstance(args[2], bytes)
+        sent_message = email.message_from_bytes(args[2])
+        decoded_body = sent_message.get_payload(decode=True).decode("utf-8")
+        self.assertIn("邀请人", decoded_body)
+        self.assertIn("http://localhost:3000/invitations/abc123", decoded_body)
 
     @patch.dict("os.environ", {}, clear=True)
     def test_raises_when_smtp_not_configured(self):
