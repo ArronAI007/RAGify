@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
+import { useParams } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Send,
@@ -48,6 +49,7 @@ function generateId() {
 }
 
 export default function QAPage() {
+  const { tenantId } = useParams<{ tenantId: string }>();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -57,8 +59,10 @@ export default function QAPage() {
   const [mode, setMode] = useState<QAMode>("standard");
   const scrollRef = useRef<HTMLDivElement>(null);
 
+  useEffect(() => { setKbId(null); }, [tenantId]);
+
   useEffect(() => {
-    listKBs()
+    listKBs(tenantId)
       .then((res) => {
         setKBs(res.knowledge_bases);
         if (res.knowledge_bases.length > 0 && !kbId) {
@@ -66,7 +70,7 @@ export default function QAPage() {
         }
       })
       .catch(() => {});
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [tenantId, kbId]);
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -95,7 +99,7 @@ export default function QAPage() {
           role: m.role,
           content: m.content,
         }));
-        const result = await agenticQuery(query, kbId ?? undefined, chatHistory);
+        const result = await agenticQuery(tenantId, query, kbId ?? undefined, chatHistory);
         const assistantMsg: ChatMessage = {
           id: generateId(),
           role: "assistant",
@@ -106,7 +110,7 @@ export default function QAPage() {
         };
         setMessages((prev) => [...prev, assistantMsg]);
       } else {
-        const result = await queryRAG(query, k, undefined, kbId ?? undefined);
+        const result = await queryRAG(tenantId, query, k, undefined, kbId ?? undefined);
         const assistantMsg: ChatMessage = {
           id: generateId(),
           role: "assistant",
@@ -127,7 +131,7 @@ export default function QAPage() {
     } finally {
       setLoading(false);
     }
-  }, [input, loading, k, kbId, mode, messages]);
+  }, [input, loading, k, kbId, mode, messages, tenantId]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) {
