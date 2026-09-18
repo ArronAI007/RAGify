@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from ..db.models import KnowledgeBaseRow
 from ..db.session import get_session
+from .tenant_manager import TenantManager
 
 logger = logging.getLogger("ragify.core.kb_manager")
 
@@ -192,5 +193,20 @@ class KBManager:
                 description=row.description, created_at=row.created_at,
             )
 
-    def get_persist_dir(self, kb_id: str) -> str:
-        return str(self.vectorstore_dir / kb_id)
+    def get_persist_dir(self, tenant_id: str, kb_id: str) -> str:
+        return str(self.vectorstore_dir / tenant_id / kb_id)
+
+    def migrate_tenant_id_if_needed(self, tenant_manager: TenantManager) -> bool:
+        earliest_tenant = tenant_manager.get_earliest_tenant()
+        if earliest_tenant is None:
+            return False
+
+        with self._session() as session:
+            orphans = session.query(KnowledgeBaseRow).filter(KnowledgeBaseRow.tenant_id.is_(None)).all()
+            if not orphans:
+                return False
+            for row in orphans:
+                row.tenant_id = earliest_tenant.id
+            session.commit()
+        logger.info("已将 %d 个知识库回填到默认工作区 %s", len(orphans), earliest_tenant.id)
+        return True

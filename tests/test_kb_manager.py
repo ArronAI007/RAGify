@@ -22,6 +22,7 @@ from sqlalchemy.orm import Session
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from ragify.core.kb_manager import KBManager
+from ragify.core.tenant_manager import TenantManager
 from ragify.db.models import Base, KnowledgeBaseRow
 from ragify.db.session import get_engine, get_session
 
@@ -210,6 +211,72 @@ class TestKBManager(unittest.TestCase):
 
     def test_migrate_json_if_needed_noop_when_nothing_to_migrate(self):
         self.assertFalse(self.manager.migrate_json_if_needed())
+
+    def test_get_persist_dir_is_nested_by_tenant(self):
+        path = self.manager.get_persist_dir(TENANT_A, "some-kb-id")
+        self.assertEqual(Path(path), self.vectorstore_dir / TENANT_A / "some-kb-id")
+
+    def test_migrate_tenant_id_backfills_existing_rows(self):
+        # 模拟 Task 1 迁移窗口期的状态：先插入一行没有 tenant_id 的知识库
+        # （比如 migrate_json_if_needed 刚导入、还没回填的状态），再建一个
+        # 真实的工作区，验证回填能把这行认领过去。
+        with self.manager._session() as session:
+            session.add(KnowledgeBaseRow(
+                id="legacy-kb", tenant_id=None, name="旧知识库", description="",
+                created_at="2024-01-01T00:00:00+00:00",
+            ))
+            session.commit()
+
+        tenant_manager = TenantManager(database_url=self.db_url)
+        tenant_manager.create_tenant("默认工作区", "user-1")
+
+        migrated = self.manager.migrate_tenant_id_if_needed(tenant_manager)
+
+        self.assertTrue(migrated)
+        with self.manager._session() as session:
+            row = session.get(KnowledgeBaseRow, "legacy-kb")
+            tenants = tenant_manager.list_tenants_for_user("user-1")
+            self.assertEqual(row.tenant_id, tenants[0].id)
+
+    def test_migrate_tenant_id_noop_when_no_tenant_exists_yet(self):
+        with self.manager._session() as session:
+            session.add(KnowledgeBaseRow(
+                id="legacy-kb", tenant_id=None, name="旧知识库", description="",
+                created_at="2024-01-01T00:00:00+00:00",
+            ))
+            session.commit()
+
+        tenant_manager = TenantManager(database_url=self.db_url)
+        migrated = self.manager.migrate_tenant_id_if_needed(tenant_manager)
+
+        self.assertFalse(migrated)
+        with self.manager._session() as session:
+            row = session.get(KnowledgeBaseRow, "legacy-kb")
+            self.assertIsNone(row.tenant_id)
+
+    def test_migrate_tenant_id_noop_when_already_backfilled(self):
+        tenant_manager = TenantManager(database_url=self.db_url)
+        tenant_manager.create_tenant("工作区", "user-1")
+        self.manager.create("知识库", "", tenant_manager.list_tenants_for_user("user-1")[0].id)
+
+        migrated = self.manager.migrate_tenant_id_if_needed(tenant_manager)
+        self.assertFalse(migrated)
+
+    def test_migrate_tenant_id_is_idempotent_across_restarts(self):
+        with self.manager._session() as session:
+            session.add(KnowledgeBaseRow(
+                id="legacy-kb", tenant_id=None, name="旧知识库", description="",
+                created_at="2024-01-01T00:00:00+00:00",
+            ))
+            session.commit()
+        tenant_manager = TenantManager(database_url=self.db_url)
+        tenant_manager.create_tenant("默认工作区", "user-1")
+
+        first_run = self.manager.migrate_tenant_id_if_needed(tenant_manager)
+        second_run = self.manager.migrate_tenant_id_if_needed(tenant_manager)
+
+        self.assertTrue(first_run)
+        self.assertFalse(second_run)
 
 
 if __name__ == "__main__":
