@@ -137,6 +137,14 @@ class TestUserManager(unittest.TestCase):
         user = self.manager.verify_credentials("nobody2@example.com", "whatever123")
         self.assertIsNone(user)
 
+    def test_verify_credentials_oversized_password_for_known_email_returns_none(self):
+        """已注册邮箱 + 超过 72 字节的密码：不能让 verify_password 的
+        ValueError 泄漏出去（否则会变成一个通过 500/401 状态码就能枚举出
+        已注册邮箱的确定性 oracle，比时序侧信道更容易利用）。"""
+        self.manager.create("oversized@example.com", "correct-password", "Oversized")
+        user = self.manager.verify_credentials("oversized@example.com", "a" * 73)
+        self.assertIsNone(user)
+
 
 if __name__ == "__main__":
     unittest.main()

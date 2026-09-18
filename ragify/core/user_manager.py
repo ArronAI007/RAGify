@@ -92,6 +92,9 @@ class UserManager:
                 except ValueError:
                     pass
                 return None
-            if not verify_password(password, row.password_hash):
+            try:
+                if not verify_password(password, row.password_hash):
+                    return None
+            except ValueError:
                 return None
             return User(id=row.id, email=row.email, name=row.name, created_at=row.created_at)
