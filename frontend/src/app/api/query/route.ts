@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { callBackend } from "@/lib/backend";
+import { resolveCurrentTenant } from "@/lib/current-tenant";
 
 export async function POST(req: NextRequest) {
   try {
+    const { token, tenantId } = await resolveCurrentTenant(req);
     const body = await req.json();
 
     if (!body.query || typeof body.query !== "string") {
@@ -23,9 +25,11 @@ export async function POST(req: NextRequest) {
       payload.kb_id = body.kb_id;
     }
 
-    const result = await callBackend("/api/query", payload, { timeout: 60_000 });
+    const result = await callBackend(`/api/tenants/${tenantId}/query`, payload, {
+      timeout: 60_000, headers: { Authorization: `Bearer ${token}` },
+    });
     return NextResponse.json(result);
   } catch (e) {
-    return NextResponse.json({ error: String(e) }, { status: 500 });
+    return NextResponse.json({ error: String(e) }, { status: 401 });
   }
 }

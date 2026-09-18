@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { callBackend } from "@/lib/backend";
+import { resolveCurrentTenant } from "@/lib/current-tenant";
 
 export async function POST(req: NextRequest) {
   try {
+    const { token, tenantId } = await resolveCurrentTenant(req);
     const body = await req.json();
     const payload: Record<string, unknown> = {};
 
@@ -18,19 +20,24 @@ export async function POST(req: NextRequest) {
       payload.kb_id = body.kb_id;
     }
 
-    const result = await callBackend("/api/index", payload, { timeout: 120_000 });
+    const result = await callBackend(`/api/tenants/${tenantId}/index`, payload, {
+      timeout: 120_000, headers: { Authorization: `Bearer ${token}` },
+    });
     return NextResponse.json(result);
   } catch (e) {
-    return NextResponse.json({ error: String(e) }, { status: 500 });
+    return NextResponse.json({ error: String(e) }, { status: 401 });
   }
 }
 
 export async function DELETE(req: NextRequest) {
   try {
+    const { token, tenantId } = await resolveCurrentTenant(req);
     const body = await req.json().catch(() => ({}));
-    const result = await callBackend("/api/index", { kb_id: body.kb_id }, { method: "DELETE", timeout: 30_000 });
+    const result = await callBackend(`/api/tenants/${tenantId}/index`, { kb_id: body.kb_id }, {
+      method: "DELETE", timeout: 30_000, headers: { Authorization: `Bearer ${token}` },
+    });
     return NextResponse.json(result);
   } catch (e) {
-    return NextResponse.json({ error: String(e) }, { status: 500 });
+    return NextResponse.json({ error: String(e) }, { status: 401 });
   }
 }
