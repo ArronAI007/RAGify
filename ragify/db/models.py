@@ -12,10 +12,19 @@ class Base(DeclarativeBase):
 
 
 class KnowledgeBaseRow(Base):
+    """Phase 4：加 tenant_id 归属，名称唯一性从全局收窄成工作区内唯一。
+    tenant_id 数据库层面允许 NULL——不是业务上允许知识库没有归属，而是迁移
+    窗口期需要：Alembic 迁移只管加列，不知道"默认工作区"的 id（那是应用
+    启动时才创建的），实际回填由 KBManager.migrate_tenant_id_if_needed()
+    在应用启动时完成。回填完成、应用真正开始对外提供服务之前，不会有任何
+    一行知识库停留在 tenant_id IS NULL 的状态。
+    """
     __tablename__ = "knowledge_bases"
+    __table_args__ = (UniqueConstraint("tenant_id", "name"),)
 
     id: Mapped[str] = mapped_column(primary_key=True)
-    name: Mapped[str] = mapped_column(nullable=False, unique=True)
+    tenant_id: Mapped[str] = mapped_column(nullable=True)
+    name: Mapped[str] = mapped_column(nullable=False)
     description: Mapped[str] = mapped_column(nullable=False, default="")
     created_at: Mapped[str] = mapped_column(nullable=False)
 
