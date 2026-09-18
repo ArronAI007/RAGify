@@ -278,6 +278,46 @@ class TestKBManager(unittest.TestCase):
         self.assertTrue(first_run)
         self.assertFalse(second_run)
 
+    def test_migrate_vectorstore_layout_moves_flat_dirs_to_nested(self):
+        # 模拟 Phase 4 之前的扁平布局：vectorstore/{kb_id}/ 直接放在
+        # vectorstore_dir 下面，不经过 tenant_id 那一层。
+        kb = self.manager.create("知识库", "", TENANT_A)
+        nested_dir = Path(self.manager.get_persist_dir(TENANT_A, kb.id))
+        # create() 在 Task 2/3 之后已经直接建分层目录了，这里手动模拟"还是
+        # 旧布局"的场景：把内容搬回扁平路径，删掉分层目录。
+        flat_dir = self.vectorstore_dir / kb.id
+        shutil.move(str(nested_dir), str(flat_dir))
+        (flat_dir / "index.faiss").write_text("fake-index", encoding="utf-8")
+
+        migrated = self.manager.migrate_vectorstore_layout_if_needed()
+
+        self.assertTrue(migrated)
+        self.assertFalse(flat_dir.exists())
+        self.assertTrue(nested_dir.exists())
+        self.assertEqual((nested_dir / "index.faiss").read_text(encoding="utf-8"), "fake-index")
+
+    def test_migrate_vectorstore_layout_noop_when_already_nested(self):
+        self.manager.create("知识库", "", TENANT_A)
+        self.assertFalse(self.manager.migrate_vectorstore_layout_if_needed())
+
+    def test_migrate_vectorstore_layout_skips_rows_without_tenant_id(self):
+        # 还没跑 migrate_tenant_id_if_needed 的行没法知道要搬到哪个
+        # tenant_id 目录下面，这次迁移应该跳过它们，不报错、不误搬。
+        with self.manager._session() as session:
+            session.add(KnowledgeBaseRow(
+                id="legacy-kb", tenant_id=None, name="旧知识库", description="",
+                created_at="2024-01-01T00:00:00+00:00",
+            ))
+            session.commit()
+        flat_dir = self.vectorstore_dir / "legacy-kb"
+        flat_dir.mkdir(parents=True, exist_ok=True)
+        (flat_dir / "index.faiss").write_text("fake-index", encoding="utf-8")
+
+        migrated = self.manager.migrate_vectorstore_layout_if_needed()
+
+        self.assertFalse(migrated)
+        self.assertTrue(flat_dir.exists())
+
 
 if __name__ == "__main__":
     unittest.main()

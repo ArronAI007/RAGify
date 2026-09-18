@@ -210,3 +210,21 @@ class KBManager:
             session.commit()
         logger.info("已将 %d 个知识库回填到默认工作区 %s", len(orphans), earliest_tenant.id)
         return True
+
+    def migrate_vectorstore_layout_if_needed(self) -> bool:
+        with self._session() as session:
+            rows = session.query(KnowledgeBaseRow).filter(KnowledgeBaseRow.tenant_id.isnot(None)).all()
+            kb_infos = [(row.id, row.tenant_id) for row in rows]
+
+        migrated_any = False
+        for kb_id, tenant_id in kb_infos:
+            flat_dir = self.vectorstore_dir / kb_id
+            nested_dir = self.vectorstore_dir / tenant_id / kb_id
+            if not flat_dir.exists() or nested_dir.exists():
+                continue
+            nested_dir.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(flat_dir), str(nested_dir))
+            logger.info("已将知识库 %s 的向量库文件从扁平路径迁移到 %s", kb_id, nested_dir)
+            migrated_any = True
+
+        return migrated_any
