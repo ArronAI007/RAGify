@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 给 `KnowledgeBase` 加 `tenant_id` 归属，迁移现有数据，给 `/api/kb`、`/api/query`、`/api/documents` 加登录门禁并把 URL 改成显式带 `tenant_id`，同步更新前端代理路由，并补一个最粗粝的登录页让浏览器端能拿到登录态。
+**Goal:** 给 `KnowledgeBase` 加 `tenant_id` 归属，迁移现有数据，给 `/api/kb`、`/api/query`、`/api/documents` 加登录门禁并把 URL 改成显式带 `tenant_id`，同步更新前端代理路由，补一个最粗粝的登录页让浏览器端能拿到登录态，并给 MCP 服务入口设计对应的租户识别机制。
 
-**Architecture:** `ragify/core/kb_manager.py` 的 `KBManager` 全部方法加 `tenant_id` 参数（`get`/`delete` 做真正的归属校验，不是简单过滤）；两个新的幂等启动迁移函数（`migrate_tenant_id_if_needed`/`migrate_vectorstore_layout_if_needed`）跟在 Phase 1/3 已有的迁移函数后面依次跑；`ragify/api/routers/{kb,query,documents}.py` 的路由全部挪到 `/api/tenants/{tenant_id}/...` 下面，用 Phase 3 已有的 `require_membership`/`require_role` 依赖做权限门禁；前端 7 个代理路由改成读 cookie、查当前用户的工作区、转发到新 URL；新增一个最简登录页 + `middleware.ts` 补上登录入口。
+**Architecture:** `ragify/core/kb_manager.py` 的 `KBManager` 全部方法加 `tenant_id` 参数（`get`/`delete` 做真正的归属校验，不是简单过滤）；两个新的幂等启动迁移函数（`migrate_tenant_id_if_needed`/`migrate_vectorstore_layout_if_needed`）跟在 Phase 1/3 已有的迁移函数后面依次跑；`ragify/api/routers/{kb,query,documents}.py` 的路由全部挪到 `/api/tenants/{tenant_id}/...` 下面，用 Phase 3 已有的 `require_membership`/`require_role` 依赖做权限门禁；前端 7 个代理路由改成读 cookie、查当前用户的工作区、转发到新 URL；新增一个最简登录页 + `middleware.ts` 补上登录入口；`ragify/mcp_server/server.py`（Phase 1 的独立 stdio 入口，不走 HTTP）启动时读 `RAGIFY_MCP_TOKEN` 环境变量（复用已有的登录 JWT），解出 user_id 再解出这个用户的第一个工作区，作为整个 MCP 会话生命周期内固定使用的 `tenant_id`。
 
 **Tech Stack:** 复用 Phase 1-3 已经装好的 FastAPI/SQLAlchemy/Alembic/PyJWT 技术栈，不新增任何 pyproject.toml 依赖；前端不新增依赖。
 
@@ -2801,7 +2801,309 @@ git commit -m "feat: 新增最粗粝的登录/注册页 + middleware，补上加
 
 ---
 
-### Task 12: 端到端验证 + 全量测试 + 收尾
+### Task 12: MCP 服务的租户识别
+
+**Files:**
+- Modify: `ragify/mcp_server/server.py`
+- Create: `tests/test_mcp_server.py`
+
+设计背景见 `docs/superpowers/specs/2026-09-18-multi-tenant-phase4-data-isolation-design.md` 的"MCP 服务的租户识别"一节：`ragify/mcp_server/server.py` 是 Phase 1 建的独立 stdio 入口，不走 HTTP，没有 Authorization 头。这个任务让它在启动时读一个真实 JWT（跟浏览器登录用的是同一套 token），解出 `user_id`，再解出这个用户的第一个工作区 id，作为这次 MCP 会话全程使用的 `tenant_id`。
+
+**这个任务依赖 Task 6 已经完成**（`resolve_kb_path` 加了 `tenant_id` 参数）——`server.py` 里 `ragify_query` 工具目前完全没调用 `resolve_kb_path`（这是 Phase 1 就存在的既有缺口，不是 Phase 4 引入的），这次顺便补上，让它跟 `query.py` 路由用同一套解析逻辑。
+
+- [ ] **Step 1: 写失败的测试 `tests/test_mcp_server.py`**
+
+```python
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+MCP server 的租户识别测试。
+验证 RAGIFY_MCP_TOKEN 缺失/无效/用户不存在/用户无工作区几种启动失败场景，
+以及正常场景下解出的 tenant_id 确实被传给 KBManager 的调用。
+"""
+
+import os
+import shutil
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+from unittest.mock import patch
+
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from ragify.core.security import create_access_token
+from ragify.core.tenant_manager import TenantManager
+from ragify.core.user_manager import UserManager
+from ragify.db.models import Base
+from ragify.db.session import get_engine
+from ragify.mcp_server.server import _call_tool, _list_resources, _resolve_mcp_tenant_id
+
+TEST_SECRET = "test-secret-only-for-unit-tests"
+
+
+class TestResolveMcpTenantId(unittest.TestCase):
+    def setUp(self):
+        self.tmp_dir = tempfile.mkdtemp()
+        self.db_url = f"sqlite:///{self.tmp_dir}/test.db"
+        Base.metadata.create_all(bind=get_engine(self.db_url))
+        self.user_manager = UserManager(database_url=self.db_url)
+        self.tenant_manager = TenantManager(database_url=self.db_url)
+
+    def tearDown(self):
+        get_engine.cache_clear()
+        shutil.rmtree(self.tmp_dir, ignore_errors=True)
+
+    @patch.dict(os.environ, {}, clear=True)
+    def test_missing_token_raises(self):
+        with self.assertRaises(RuntimeError):
+            _resolve_mcp_tenant_id(self.user_manager, self.tenant_manager, secret=TEST_SECRET)
+
+    def test_invalid_token_raises(self):
+        with patch.dict(os.environ, {"RAGIFY_MCP_TOKEN": "not-a-real-token"}, clear=True):
+            with self.assertRaises(RuntimeError):
+                _resolve_mcp_tenant_id(self.user_manager, self.tenant_manager, secret=TEST_SECRET)
+
+    def test_user_not_found_raises(self):
+        token = create_access_token("ghost-user-id", "ghost@example.com", secret=TEST_SECRET)
+        with patch.dict(os.environ, {"RAGIFY_MCP_TOKEN": token}, clear=True):
+            with self.assertRaises(RuntimeError):
+                _resolve_mcp_tenant_id(self.user_manager, self.tenant_manager, secret=TEST_SECRET)
+
+    def test_user_with_no_tenants_raises(self):
+        user = self.user_manager.create("solo@example.com", "password123", "Solo")
+        token = create_access_token(user.id, user.email, secret=TEST_SECRET)
+        with patch.dict(os.environ, {"RAGIFY_MCP_TOKEN": token}, clear=True):
+            with self.assertRaises(RuntimeError):
+                _resolve_mcp_tenant_id(self.user_manager, self.tenant_manager, secret=TEST_SECRET)
+
+    def test_success_returns_first_tenant(self):
+        user = self.user_manager.create("owner@example.com", "password123", "Owner")
+        tenant = self.tenant_manager.create_tenant("工作区", user.id)
+        token = create_access_token(user.id, user.email, secret=TEST_SECRET)
+        with patch.dict(os.environ, {"RAGIFY_MCP_TOKEN": token}, clear=True):
+            tenant_id = _resolve_mcp_tenant_id(self.user_manager, self.tenant_manager, secret=TEST_SECRET)
+        self.assertEqual(tenant_id, tenant.id)
+
+
+class TestMcpToolsTenantScoping(unittest.TestCase):
+    @patch("ragify.mcp_server.server.KBManager")
+    def test_list_resources_passes_tenant_id(self, mock_kb_manager_cls):
+        mock_manager = mock_kb_manager_cls.return_value
+        mock_manager.list_all.return_value = []
+        _list_resources("tenant-x")
+        mock_manager.list_all.assert_called_once_with("tenant-x")
+
+    @patch("ragify.mcp_server.server.KBManager")
+    def test_call_tool_list_kbs_passes_tenant_id(self, mock_kb_manager_cls):
+        mock_manager = mock_kb_manager_cls.return_value
+        mock_manager.list_all.return_value = []
+        _call_tool("ragify_list_kbs", {}, "tenant-y")
+        mock_manager.list_all.assert_called_once_with("tenant-y")
+
+
+if __name__ == "__main__":
+    unittest.main()
+```
+
+- [ ] **Step 2: 跑测试，确认失败**
+
+```bash
+cd /Users/arron/Desktop/ArronAI/RAGify && .venv/bin/python -m unittest tests.test_mcp_server -v 2>&1 | tail -20
+```
+
+Expected: `ImportError`（`_resolve_mcp_tenant_id` 还不存在），以及 `_list_resources`/`_call_tool` 的签名跟测试期望的参数个数不一致导致的 `TypeError`。
+
+- [ ] **Step 3: 改写 `ragify/mcp_server/server.py`**
+
+当前顶部 import：
+```python
+import json
+import sys
+from typing import Any
+
+from ..agentic.skills import SkillRegistry
+from ..core.kb_manager import KBManager
+```
+
+改成：
+```python
+import json
+import os
+import sys
+from typing import Any
+
+import jwt as pyjwt
+
+from ..agentic.skills import SkillRegistry
+from ..core.kb_manager import KBManager
+from ..core.security import decode_access_token
+from ..core.tenant_manager import TenantManager
+from ..core.user_manager import UserManager
+```
+
+在 `_list_tools` 之前（文件靠前的位置）新增：
+
+```python
+def _resolve_mcp_tenant_id(
+    user_manager: UserManager | None = None,
+    tenant_manager: TenantManager | None = None,
+    *,
+    secret: str | None = None,
+) -> str:
+    """启动期解析当前 MCP 会话对应的 tenant_id。读 RAGIFY_MCP_TOKEN 环境变量
+    （用户通过已有的 /api/auth/login 拿到的真实 JWT），解码拿 user_id，查用户
+    是否存在，再取这个用户所属的第一个工作区。任何一步失败都直接抛异常让
+    进程启动失败——不静默降级、不假装能继续跑。
+
+    user_manager/tenant_manager/secret 三个参数只在测试里传（分别用临时
+    数据库和固定密钥做确定性验证），生产代码路径永远不传，跟
+    ragify/core/security.py 里 create_access_token/decode_access_token 的
+    secret 参数是同一个"仅测试用"的设计思路。
+    """
+    user_manager = user_manager or UserManager()
+    tenant_manager = tenant_manager or TenantManager()
+
+    token = os.environ.get("RAGIFY_MCP_TOKEN")
+    if not token:
+        raise RuntimeError(
+            "未设置 RAGIFY_MCP_TOKEN——MCP server 需要一个通过 /api/auth/login "
+            "获取的有效登录凭证才能启动"
+        )
+    try:
+        payload = decode_access_token(token, secret=secret)
+        user_id = payload["sub"]
+    except (pyjwt.PyJWTError, KeyError) as e:
+        raise RuntimeError(f"RAGIFY_MCP_TOKEN 无效或已过期：{e}")
+
+    user = user_manager.get_by_id(user_id)
+    if user is None:
+        raise RuntimeError("RAGIFY_MCP_TOKEN 对应的用户不存在")
+
+    tenants = tenant_manager.list_tenants_for_user(user.id)
+    if not tenants:
+        raise RuntimeError(f"用户 {user.email} 目前不属于任何工作区，MCP server 无法启动")
+
+    return tenants[0].id
+```
+
+`_list_resources` 改成：
+```python
+def _list_resources(tenant_id: str) -> list[dict]:
+    manager = KBManager()
+    manager.migrate_json_if_needed()
+    kbs = manager.list_all(tenant_id)
+    resources: list[dict] = []
+    for kb in kbs:
+        resources.append({
+            "uri": f"ragify://kb/{kb.id}",
+            "name": kb.name,
+            "description": kb.description or "",
+            "mimeType": "application/json",
+        })
+    return resources
+```
+
+`_handle_request` 改成：
+```python
+def _handle_request(request: dict, tenant_id: str) -> dict | None:
+    method = request.get("method", "")
+    req_id = request.get("id")
+
+    if method == "tools/list":
+        result = _list_tools()
+    elif method == "tools/call":
+        params = request.get("params", {})
+        tool_name = params.get("name", "")
+        arguments = params.get("arguments", {})
+        result = _call_tool(tool_name, arguments, tenant_id)
+    elif method == "resources/list":
+        result = _list_resources(tenant_id)
+    elif method == "skills/list":
+        result = _list_skills()
+    else:
+        return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "error": {"code": -32601, "message": f"Method not found: {method}"},
+        }
+
+    return {"jsonrpc": "2.0", "id": req_id, "result": result}
+```
+
+`_call_tool` 改成（新增 `tenant_id` 参数，`ragify_query` 分支补上之前完全没做的 `resolve_kb_path` 调用，`ragify_list_kbs` 分支的 `list_all()` 加上 `tenant_id`）：
+```python
+def _call_tool(name: str, arguments: dict, tenant_id: str) -> Any:
+    if name == "ragify_query":
+        query = arguments.get("query", "")
+        kb_id = arguments.get("kb_id")
+        try:
+            from ..api.dependencies import KB_LOCK, resolve_kb_path
+            manager = KBManager()
+            with KB_LOCK:
+                resolve_kb_path(manager, kb_id, tenant_id)
+            from ..agentic.agent import AgenticRAG
+            agent = AgenticRAG(kb_id=kb_id)
+            result = agent.run(query)
+            return result.get("response", "")
+        except Exception as e:
+            return f"Tool error: {e}"
+    elif name == "ragify_list_kbs":
+        manager = KBManager()
+        manager.migrate_json_if_needed()
+        return [{"id": kb.id, "name": kb.name} for kb in manager.list_all(tenant_id)]
+    return {"error": f"Unknown tool: {name}"}
+```
+
+（`resolve_kb_path` 之前完全没有被 `ragify_query` 调用过——这是 Phase 1 就存在的既有缺口，MCP 工具调用一直靠"上一次请求残留的全局 vectorstore 配置"这种不可靠的方式工作。这次顺便补上，跟 `query.py` 路由用同一个函数、同一把锁，不是 Phase 4 引入的新问题，是趁这次加 tenant_id 的机会一并修掉。）
+
+`run_mcp_server` 改成：
+```python
+def run_mcp_server() -> None:
+    """Run the MCP server on stdio (JSON-RPC 2.0, one request per line)."""
+    tenant_id = _resolve_mcp_tenant_id()
+    for line in sys.stdin:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            request = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        response = _handle_request(request, tenant_id)
+        if response is not None:
+            sys.stdout.write(json.dumps(response, ensure_ascii=False) + "\n")
+            sys.stdout.flush()
+```
+
+`_list_tools`/`_list_skills`/`_handle_request`（除了新增的 `tenant_id` 参数）/`if __name__ == "__main__":` 块，其余内容不变。
+
+- [ ] **Step 4: 跑测试，确认通过**
+
+```bash
+.venv/bin/python -m unittest tests.test_mcp_server -v
+```
+
+Expected: 7 个测试全部 `ok`。
+
+- [ ] **Step 5: 跑全量测试套件确认无回归**
+
+```bash
+.venv/bin/python -m unittest discover -s tests 2>&1 | tail -10
+```
+
+Expected: 全部通过，无 FAILED/ERROR（这时 Task 6-9 已经把 `query.py`/`documents.py` 的路由改完，之前提到的跨任务中间态已经结束，全量测试套件应该重新回到全绿）。
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add ragify/mcp_server/server.py tests/test_mcp_server.py
+git commit -m "feat: MCP server 启动时用 RAGIFY_MCP_TOKEN 解析 tenant_id，补上 ragify_query 缺失的 resolve_kb_path 调用"
+```
+
+---
+
+### Task 13: 端到端验证 + 全量测试 + 收尾
 
 **Files:** 无新文件，只做验证
 
