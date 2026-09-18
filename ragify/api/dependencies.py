@@ -28,22 +28,24 @@ def get_kb_manager() -> KBManager:
     return KBManager()
 
 
-def resolve_kb_path(manager: KBManager, kb_id: str | None) -> str:
+def resolve_kb_path(manager: KBManager, kb_id: str | None, tenant_id: str) -> str:
     """解析 kb_id 对应的 persist_directory，并把它写进全局 vectorstore 配置。
 
-    调用方必须已经持有 KB_LOCK。如果 kb_id 为 None，回退到第一个可用知识库。
+    调用方必须已经持有 KB_LOCK。如果 kb_id 为 None，回退到这个工作区里第一个
+    可用知识库——Phase 4 之后"第一个可用知识库"的范围收窄到当前 tenant_id
+    下面，不再是全局第一个。
     """
     if kb_id:
-        kb = manager.get(kb_id)
+        kb = manager.get(kb_id, tenant_id)
         if kb is None:
             raise ValueError(f"知识库 '{kb_id}' 不存在")
     else:
-        all_kbs = manager.list_all()
+        all_kbs = manager.list_all(tenant_id)
         if not all_kbs:
             raise ValueError("没有可用知识库，请先创建知识库")
         kb_id = all_kbs[0].id
 
-    persist_dir = manager.get_persist_dir(kb_id)
+    persist_dir = manager.get_persist_dir(tenant_id, kb_id)
     get_config().update("vectorstore.persist_directory", persist_dir)
     os.makedirs(persist_dir, exist_ok=True)
     return persist_dir
