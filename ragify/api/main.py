@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 
-from .routers import documents, health, kb, query
+from .routers import auth, documents, health, kb, query
 from ..core.kb_manager import KBManager
 
 app = FastAPI(title="RAGify API")
@@ -8,6 +8,7 @@ app = FastAPI(title="RAGify API")
 app.include_router(kb.router)
 app.include_router(query.router)
 app.include_router(documents.router)
+app.include_router(auth.router)
 app.include_router(health.router)
 
 
