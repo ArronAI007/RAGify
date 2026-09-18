@@ -34,6 +34,12 @@ def _get_tenant_lock(tenant_id: str) -> threading.Lock:
         return _tenant_locks[tenant_id]
 
 
+# migrate_default_tenant_if_needed() 在建默认工作区之前，还没有 tenant_id 可用
+# 于加锁——用一个固定的哨兵 key 复用同一套锁机制，防止两次并发调用都读到"还
+# 没有 TenantRow"、都各自建一个"默认工作区"，产生两份重复的默认工作区。
+_DEFAULT_TENANT_MIGRATION_LOCK_KEY = "__default_tenant_migration__"
+
+
 VALID_ROLES = {"OWNER", "ADMIN", "EDITOR", "NORMAL", "DATASET_OPERATOR"}
 # ADMIN 不能创造或修改跟自己平级或更高的角色——这两档只有 OWNER 能触碰。
 ADMIN_RESTRICTED_ROLES = {"OWNER", "ADMIN"}
@@ -209,21 +215,22 @@ class TenantManager:
             session.commit()
 
     def migrate_default_tenant_if_needed(self) -> bool:
-        with self._session() as session:
-            if session.query(TenantRow).first() is not None:
-                return False
-            users = session.query(UserRow).order_by(UserRow.created_at.asc()).all()
-            if not users:
-                return False
+        with _get_tenant_lock(_DEFAULT_TENANT_MIGRATION_LOCK_KEY):
+            with self._session() as session:
+                if session.query(TenantRow).first() is not None:
+                    return False
+                users = session.query(UserRow).order_by(UserRow.created_at.asc()).all()
+                if not users:
+                    return False
 
-            tenant_id = uuid.uuid4().hex[:12]
-            created_at = datetime.now(timezone.utc).isoformat()
-            session.add(TenantRow(id=tenant_id, name="默认工作区", created_at=created_at))
-            for index, user in enumerate(users):
-                role = "OWNER" if index == 0 else "ADMIN"
-                session.add(TenantAccountJoinRow(
-                    id=uuid.uuid4().hex[:12], tenant_id=tenant_id, user_id=user.id,
-                    role=role, created_at=created_at,
-                ))
-            session.commit()
-        return True
+                tenant_id = uuid.uuid4().hex[:12]
+                created_at = datetime.now(timezone.utc).isoformat()
+                session.add(TenantRow(id=tenant_id, name="默认工作区", created_at=created_at))
+                for index, user in enumerate(users):
+                    role = "OWNER" if index == 0 else "ADMIN"
+                    session.add(TenantAccountJoinRow(
+                        id=uuid.uuid4().hex[:12], tenant_id=tenant_id, user_id=user.id,
+                        role=role, created_at=created_at,
+                    ))
+                session.commit()
+            return True

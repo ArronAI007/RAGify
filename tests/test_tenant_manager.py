@@ -250,6 +250,35 @@ class TestTenantManager(unittest.TestCase):
     def test_migrate_default_tenant_noop_when_no_users(self):
         self.assertFalse(self.manager.migrate_default_tenant_if_needed())
 
+    def test_concurrent_migration_creates_only_one_default_tenant(self):
+        """证明 migrate_default_tenant_if_needed 在并发调用下不会建出两份
+        "默认工作区"。两个线程同时对同一个数据库调用这个方法，在没有锁的
+        情况下会各自读到"还没有 TenantRow"、都通过校验、都各自建一个默认
+        工作区（code review 实测命中率 97.5%）。加了 _get_tenant_lock 之后，
+        两个线程被强制序列化：先执行的那个真正建出默认工作区，后执行的那个
+        会看到已经存在的 TenantRow，返回 False。"""
+        self._insert_user("user-1", "2024-01-01T00:00:00+00:00")
+
+        results: dict[str, bool] = {}
+        barrier = threading.Barrier(2)
+
+        def migrate(key: str) -> None:
+            barrier.wait()
+            results[key] = self.manager.migrate_default_tenant_if_needed()
+
+        t1 = threading.Thread(target=migrate, args=("t1",))
+        t2 = threading.Thread(target=migrate, args=("t2",))
+        t1.start()
+        t2.start()
+        t1.join()
+        t2.join()
+
+        outcomes = list(results.values())
+        self.assertEqual(sorted(outcomes), [False, True])
+
+        tenants = self.manager.list_tenants_for_user("user-1")
+        self.assertEqual(len(tenants), 1)
+
     def _insert_user(self, user_id: str, created_at: str) -> None:
         from ragify.db.models import UserRow
         with self.manager._session() as session:
