@@ -53,3 +53,16 @@ class RegisterRequest(BaseModel):
 class LoginRequest(BaseModel):
     email: EmailStr
     password: str
+
+
+class CreateTenantRequest(BaseModel):
+    name: str
+
+
+class UpdateMemberRoleRequest(BaseModel):
+    role: str
+
+
+class CreateInvitationRequest(BaseModel):
+    email: EmailStr
+    role: str
