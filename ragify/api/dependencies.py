@@ -13,8 +13,10 @@ from fastapi import Depends, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from ..config import get_config
+from ..core.invitation_manager import InvitationManager
 from ..core.kb_manager import KBManager
 from ..core.security import decode_access_token
+from ..core.tenant_manager import Membership, TenantManager
 from ..core.user_manager import User, UserManager
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
@@ -69,3 +71,30 @@ def get_current_user(
     if user is None:
         raise HTTPException(status_code=401, detail="用户不存在")
     return user
+
+
+def get_tenant_manager() -> TenantManager:
+    return TenantManager()
+
+
+def get_invitation_manager() -> InvitationManager:
+    return InvitationManager()
+
+
+def require_membership(
+    tenant_id: str,
+    current_user: User = Depends(get_current_user),
+    manager: TenantManager = Depends(get_tenant_manager),
+) -> Membership:
+    membership = manager.get_membership(tenant_id, current_user.id)
+    if membership is None:
+        raise HTTPException(status_code=403, detail="你不是这个工作区的成员")
+    return membership
+
+
+def require_role(*allowed_roles: str):
+    def _dependency(membership: Membership = Depends(require_membership)) -> Membership:
+        if membership.role not in allowed_roles:
+            raise HTTPException(status_code=403, detail="没有权限执行这个操作")
+        return membership
+    return _dependency
