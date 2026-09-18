@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-KBManager 测试（DB 驱动版）
-验证 KB 的增删查、名称去重，以及从 kbs.json / 旧版扁平索引迁移进数据库的逻辑。
+KBManager 测试（DB 驱动版，Phase 4 加了 tenant_id 归属）
+验证 KB 的增删查、工作区内名称去重、跨工作区隔离，以及从 kbs.json / 旧版
+扁平索引迁移进数据库的逻辑。
 """
 
 import json
@@ -23,6 +24,9 @@ from ragify.core.kb_manager import KBManager
 from ragify.db.models import Base, KnowledgeBaseRow
 from ragify.db.session import get_engine, get_session
 
+TENANT_A = "tenant-a"
+TENANT_B = "tenant-b"
+
 
 class TestKBManager(unittest.TestCase):
     def setUp(self):
@@ -37,38 +41,38 @@ class TestKBManager(unittest.TestCase):
         shutil.rmtree(self.tmp_dir, ignore_errors=True)
 
     def test_create_and_get(self):
-        kb = self.manager.create("测试知识库", "描述")
+        kb = self.manager.create("测试知识库", "描述", TENANT_A)
         self.assertTrue(kb.id)
-        fetched = self.manager.get(kb.id)
+        self.assertEqual(kb.tenant_id, TENANT_A)
+        fetched = self.manager.get(kb.id, TENANT_A)
         self.assertEqual(fetched.name, "测试知识库")
         self.assertEqual(fetched.description, "描述")
 
     def test_create_empty_name_raises(self):
         with self.assertRaises(ValueError):
-            self.manager.create("   ")
+            self.manager.create("   ", "", TENANT_A)
 
-    def test_create_duplicate_name_raises(self):
-        self.manager.create("重复名称")
+    def test_create_duplicate_name_within_same_tenant_raises(self):
+        self.manager.create("重复名称", "", TENANT_A)
         with self.assertRaises(ValueError):
-            self.manager.create("重复名称")
+            self.manager.create("重复名称", "", TENANT_A)
+
+    def test_create_same_name_in_different_tenants_both_succeed(self):
+        kb_a = self.manager.create("同名知识库", "", TENANT_A)
+        kb_b = self.manager.create("同名知识库", "", TENANT_B)
+        self.assertNotEqual(kb_a.id, kb_b.id)
+        self.assertEqual(self.manager.get(kb_a.id, TENANT_A).name, "同名知识库")
+        self.assertEqual(self.manager.get(kb_b.id, TENANT_B).name, "同名知识库")
 
     def test_create_race_condition_raises_value_error(self):
         """Exercises the `except IntegrityError` branch in create(), not the
         in-Python pre-check (that path is already covered by
-        test_create_duplicate_name_raises).
+        test_create_duplicate_name_within_same_tenant_raises).
 
-        A true concurrent-thread interleaving isn't practical to assert
-        deterministically here, so instead we force the same interleaving
-        deterministically: we patch Session.commit so that the *first* time
-        create() calls it (i.e. right after its own pre-check already ran
-        and found no duplicate), we commit a colliding row through a
-        *separate* session first -- simulating another process's create()
-        call finishing in that exact window. create()'s own subsequent
-        commit then hits the DB's UNIQUE constraint and must go through the
-        except IntegrityError -> ValueError translation, since its pre-check
-        already ran before the collision existed. If the try/except
-        IntegrityError block were removed, this test would fail with an
-        unhandled sqlalchemy.exc.IntegrityError instead of ValueError.
+        Same technique as before Phase 4: patch Session.commit so that the
+        *first* time create() calls it, we commit a colliding
+        (tenant_id, name) row through a *separate* session first, simulating
+        another process's create() call finishing in that exact window.
         """
         name = "并发冲突名称"
         original_commit = Session.commit
@@ -80,11 +84,9 @@ class TestKBManager(unittest.TestCase):
                 other_session = get_session(self.db_url)
                 try:
                     other_session.add(KnowledgeBaseRow(
-                        id=uuid.uuid4().hex[:12], name=name, description="",
+                        id=uuid.uuid4().hex[:12], tenant_id=TENANT_A, name=name, description="",
                         created_at=datetime.now(timezone.utc).isoformat(),
                     ))
-                    # Call the unpatched commit directly so this doesn't
-                    # recurse into racing_commit again.
                     original_commit(other_session)
                 finally:
                     other_session.close()
@@ -92,27 +94,61 @@ class TestKBManager(unittest.TestCase):
 
         with patch.object(Session, "commit", racing_commit):
             with self.assertRaises(ValueError):
-                self.manager.create(name)
+                self.manager.create(name, "", TENANT_A)
 
     def test_list_all_empty(self):
-        self.assertEqual(self.manager.list_all(), [])
+        self.assertEqual(self.manager.list_all(TENANT_A), [])
+
+    def test_list_all_only_returns_own_tenant(self):
+        self.manager.create("A的知识库", "", TENANT_A)
+        self.manager.create("B的知识库", "", TENANT_B)
+
+        kbs_a = self.manager.list_all(TENANT_A)
+        self.assertEqual(len(kbs_a), 1)
+        self.assertEqual(kbs_a[0].name, "A的知识库")
+
+        kbs_b = self.manager.list_all(TENANT_B)
+        self.assertEqual(len(kbs_b), 1)
+        self.assertEqual(kbs_b[0].name, "B的知识库")
 
     def test_get_missing_returns_none(self):
-        self.assertIsNone(self.manager.get("does-not-exist"))
+        self.assertIsNone(self.manager.get("does-not-exist", TENANT_A))
+
+    def test_get_with_wrong_tenant_returns_none(self):
+        """跨租户隔离的核心断言：即使 kb_id 是真实存在的（比如从别的工作区
+        的旧链接、日志里泄露出来），用别的 tenant_id 去 get 也必须表现得
+        跟"这个 kb_id 根本不存在"完全一样——不能因为 kb_id 本身合法就泄露
+        任何信息（哪怕只是 404 vs 拿到数据的区别）。"""
+        kb = self.manager.create("A的知识库", "", TENANT_A)
+        self.assertIsNone(self.manager.get(kb.id, TENANT_B))
+        self.assertIsNotNone(self.manager.get(kb.id, TENANT_A))
 
     def test_delete_removes_kb_and_directory(self):
-        kb = self.manager.create("待删除")
-        kb_dir = Path(self.manager.get_persist_dir(kb.id))
+        kb = self.manager.create("待删除", "", TENANT_A)
+        # 注意：get_persist_dir 本任务保持不变（单参数、非租户嵌套路径），
+        # 而 create/delete 已改为使用租户嵌套路径
+        # (vectorstore_dir/tenant_id/kb_id)，Task 3 才会让 get_persist_dir
+        # 跟上这个新布局。这里直接拼真实路径来验证目录的创建与删除。
+        kb_dir = self.vectorstore_dir / TENANT_A / kb.id
         self.assertTrue(kb_dir.exists())
 
-        ok = self.manager.delete(kb.id)
+        ok = self.manager.delete(kb.id, TENANT_A)
 
         self.assertTrue(ok)
-        self.assertIsNone(self.manager.get(kb.id))
+        self.assertIsNone(self.manager.get(kb.id, TENANT_A))
         self.assertFalse(kb_dir.exists())
 
     def test_delete_missing_returns_false(self):
-        self.assertFalse(self.manager.delete("does-not-exist"))
+        self.assertFalse(self.manager.delete("does-not-exist", TENANT_A))
+
+    def test_delete_with_wrong_tenant_returns_false_and_does_not_delete(self):
+        """同 test_get_with_wrong_tenant_returns_none 的隔离要求：用别的
+        tenant_id 删不掉别人的知识库，行为跟"不存在"一样，且知识库本身
+        必须还在。"""
+        kb = self.manager.create("A的知识库", "", TENANT_A)
+        ok = self.manager.delete(kb.id, TENANT_B)
+        self.assertFalse(ok)
+        self.assertIsNotNone(self.manager.get(kb.id, TENANT_A))
 
     def test_migrate_json_if_needed_imports_existing_file(self):
         self.vectorstore_dir.mkdir(parents=True, exist_ok=True)
@@ -124,14 +160,18 @@ class TestKBManager(unittest.TestCase):
         migrated = self.manager.migrate_json_if_needed()
 
         self.assertTrue(migrated)
-        kb = self.manager.get("legacy1")
-        self.assertIsNotNone(kb)
-        self.assertEqual(kb.name, "旧知识库")
+        # 迁移进来的行还没有 tenant_id（那是 migrate_tenant_id_if_needed 的
+        # 职责，Task 3 才会加），这里用底层查询确认行本身确实进了库。
+        with self.manager._session() as session:
+            row = session.get(KnowledgeBaseRow, "legacy1")
+            self.assertIsNotNone(row)
+            self.assertEqual(row.name, "旧知识库")
+            self.assertIsNone(row.tenant_id)
         self.assertFalse(kbs_file.exists())
         self.assertTrue((self.vectorstore_dir / "kbs.json.migrated").exists())
 
     def test_migrate_json_if_needed_noop_when_db_has_rows(self):
-        self.manager.create("已有数据")
+        self.manager.create("已有数据", "", TENANT_A)
         self.assertFalse(self.manager.migrate_json_if_needed())
 
     def test_migrate_json_if_needed_noop_when_nothing_to_migrate(self):
