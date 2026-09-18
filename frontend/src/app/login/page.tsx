@@ -50,8 +50,13 @@ export default function LoginPage() {
           body: JSON.stringify({ name: `${name}的工作区` }),
         });
         if (!tenantRes.ok) {
+          // 账号本身已经注册成功、登录态已建立，只是建默认工作区这一步
+          // 失败——不能笼统提示"注册失败"，否则用户会以为整个注册没
+          // 成功，用同一邮箱重试会撞上"邮箱已存在"，反而更困惑。
           const tenantData = await tenantRes.json().catch(() => ({}));
-          throw new Error(tenantData.error || "创建默认工作区失败");
+          throw new Error(
+            `账号已注册成功，但创建默认工作区失败：${tenantData.error || "请重试"}。请刷新页面重试。`
+          );
         }
       }
       router.push("/");
