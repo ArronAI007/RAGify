@@ -234,3 +234,10 @@ class TenantManager:
                     ))
                 session.commit()
             return True
+
+    def get_earliest_tenant(self) -> Tenant | None:
+        with self._session() as session:
+            row = session.query(TenantRow).order_by(TenantRow.created_at.asc()).first()
+            if row is None:
+                return None
+            return Tenant(id=row.id, name=row.name, created_at=row.created_at)

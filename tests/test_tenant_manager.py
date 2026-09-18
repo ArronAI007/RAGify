@@ -288,6 +288,16 @@ class TestTenantManager(unittest.TestCase):
             ))
             session.commit()
 
+    def test_get_earliest_tenant(self):
+        t1 = self.manager.create_tenant("工作区1", "user-1")
+        self._insert_user("user-2", "2024-02-01T00:00:00+00:00")
+        t2 = self.manager.create_tenant("工作区2", "user-2")
+        earliest = self.manager.get_earliest_tenant()
+        self.assertEqual(earliest.id, t1.id)
+
+    def test_get_earliest_tenant_none_when_no_tenants(self):
+        self.assertIsNone(self.manager.get_earliest_tenant())
+
     def _add_member(self, tenant_id: str, user_id: str, role: str) -> None:
         import uuid as uuid_module
         from datetime import datetime, timezone
