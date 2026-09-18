@@ -149,6 +149,7 @@ export async function getStats(tenantId: string, kbId?: string): Promise<SystemS
   return fetchJSON<SystemStats>(`/api/tenants/${tenantId}/stats${params}`);
 }
 
+// 全局健康检查，不挂在任何工作区维度下，故意不加 tenantId 参数。
 export async function getHealth(): Promise<HealthStatus> {
   return fetchJSON<HealthStatus>("/api/health");
 }
