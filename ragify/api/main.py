@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 
-from .routers import auth, documents, health, kb, query, tenants
+from .routers import auth, documents, health, invitations, kb, query, tenants
 from ..core.kb_manager import KBManager
 from ..core.tenant_manager import TenantManager
 
@@ -11,6 +11,7 @@ app.include_router(query.router)
 app.include_router(documents.router)
 app.include_router(auth.router)
 app.include_router(tenants.router)
+app.include_router(invitations.router)
 app.include_router(health.router)
 
 
