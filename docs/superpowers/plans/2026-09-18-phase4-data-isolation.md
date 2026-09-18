@@ -3214,7 +3214,15 @@ git log --oneline 3e6f4bb..HEAD
 
 （`3e6f4bb` 是 "docs: Phase 4 数据隔离迁移 设计文档" 那个 commit，即 Task 1 开始之前的状态。）
 
-Expected: 能看到本计划 Task 1-11 对应的全部 commit。
+Expected: 能看到本计划 Task 1-13 对应的全部 commit。
+
+---
+
+## 已知问题，记录为后续任务（本计划不处理）
+
+**`KB_LOCK` 锁粒度问题**（Task 7 code review 发现，用户确认先记录、不在 Phase 4 里改）：`KB_LOCK`（`ragify/api/dependencies.py`）是一把跨整个进程的全局锁，Phase 4 之前所有知识库全局共享时这个设计没有问题。租户隔离之后，一个工作区在 `list_kbs` 里列出很多知识库、逐个查文档数时会一直占着这把锁，连带卡住其他工作区完全无关的查询/文档请求——实测 30 个知识库场景下，无关工作区的请求会被卡住约 1.7 秒。这不是 Task 7 引入的新 bug（这个"边循环边占锁"的写法从 Phase 1 第一个 commit 就有），但 Phase 4 的租户隔离让这个问题第一次变得对"无关的人"不公平。
+
+修复方向（不在本计划范围内，留给以后）：把 `KB_LOCK` 改成跟 `TenantManager.create_tenant`/`KBManager.create` 已经用过的按 `tenant_id` 分锁的模式，或者把逐个知识库查文档数这部分挪到锁外面。这个改动会牵动 `kb.py`/`query.py`/`documents.py` 三个文件里所有用到 `KB_LOCK` 的地方，需要等这三个文件的 Phase 4 改造（Task 7-9）全部完成、看清楚锁的完整使用方式之后再统一处理，不适合在某一个路由文件的任务里单独改一半。
 
 ---
 
