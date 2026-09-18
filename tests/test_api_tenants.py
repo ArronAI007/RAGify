@@ -62,6 +62,16 @@ class TestTenantRoutes(unittest.TestCase):
         roles = {m["role"] for m in members_res.json()}
         self.assertEqual(roles, {"OWNER"})
 
+    def test_list_members_includes_email_and_name(self):
+        res = self.client.post("/api/tenants", json={"name": "T"}, headers=self._auth(self.owner_token))
+        tenant_id = res.json()["id"]
+
+        members_res = self.client.get(f"/api/tenants/{tenant_id}/members", headers=self._auth(self.owner_token))
+        self.assertEqual(members_res.status_code, 200)
+        owner_member = members_res.json()[0]
+        self.assertEqual(owner_member["email"], "owner@example.com")
+        self.assertEqual(owner_member["name"], "Owner")
+
     def test_list_my_tenants(self):
         self.client.post("/api/tenants", json={"name": "工作区A"}, headers=self._auth(self.owner_token))
         res = self.client.get("/api/tenants", headers=self._auth(self.owner_token))

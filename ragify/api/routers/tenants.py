@@ -6,6 +6,7 @@ from ..dependencies import (
     get_current_user,
     get_invitation_manager,
     get_tenant_manager,
+    get_user_manager,
     require_membership,
     require_role,
 )
@@ -13,7 +14,7 @@ from ..schemas import CreateInvitationRequest, CreateTenantRequest, UpdateMember
 from ...core.invitation_manager import InvitationManager
 from ...core.mailer import send_invitation_email
 from ...core.tenant_manager import Membership, Tenant, VALID_ROLES, TenantManager
-from ...core.user_manager import User
+from ...core.user_manager import User, UserManager
 
 router = APIRouter()
 
@@ -22,10 +23,11 @@ def _tenant_out(tenant: Tenant) -> dict:
     return {"id": tenant.id, "name": tenant.name, "created_at": tenant.created_at}
 
 
-def _membership_out(membership: Membership) -> dict:
+def _membership_out(membership: Membership, user: User | None) -> dict:
     return {
         "tenant_id": membership.tenant_id, "user_id": membership.user_id,
         "role": membership.role, "created_at": membership.created_at,
+        "email": user.email if user else None, "name": user.name if user else None,
     }
 
 
@@ -55,8 +57,10 @@ def list_members(
     tenant_id: str,
     membership: Membership = Depends(require_membership),
     manager: TenantManager = Depends(get_tenant_manager),
+    user_manager: UserManager = Depends(get_user_manager),
 ) -> list[dict]:
-    return [_membership_out(m) for m in manager.list_members(tenant_id)]
+    members = manager.list_members(tenant_id)
+    return [_membership_out(m, user_manager.get_by_id(m.user_id)) for m in members]
 
 
 @router.patch("/api/tenants/{tenant_id}/members/{user_id}")
@@ -66,6 +70,7 @@ def update_member_role(
     body: UpdateMemberRoleRequest,
     membership: Membership = Depends(require_role("OWNER", "ADMIN")),
     manager: TenantManager = Depends(get_tenant_manager),
+    user_manager: UserManager = Depends(get_user_manager),
 ) -> dict:
     try:
         updated = manager.update_member_role(tenant_id, user_id, body.role, membership.role)
@@ -73,7 +78,7 @@ def update_member_role(
         raise HTTPException(status_code=403, detail=str(e))
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
-    return _membership_out(updated)
+    return _membership_out(updated, user_manager.get_by_id(updated.user_id))
 
 
 @router.delete("/api/tenants/{tenant_id}/members/{user_id}")
