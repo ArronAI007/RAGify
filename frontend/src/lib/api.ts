@@ -10,8 +10,6 @@ import type {
   ChunkListResponse,
 } from "@/types";
 
-const BASE = "/api";
-
 export interface UploadResult {
   saved: string[];
   rejected: string[];
@@ -23,6 +21,10 @@ async function fetchJSON<T>(url: string, options?: RequestInit): Promise<T> {
     headers: { "Content-Type": "application/json" },
     ...options,
   });
+  if (res.status === 401) {
+    window.location.href = "/login";
+    throw new Error("未登录");
+  }
   if (!res.ok) {
     const body = await res.text();
     throw new Error(body || `${res.status} ${res.statusText}`);
@@ -32,22 +34,23 @@ async function fetchJSON<T>(url: string, options?: RequestInit): Promise<T> {
 
 // ── Knowledge Bases ──────────────────────────────────────────────
 
-export async function listKBs(): Promise<KBListResponse> {
-  return fetchJSON<KBListResponse>(`${BASE}/knowledge-bases`);
+export async function listKBs(tenantId: string): Promise<KBListResponse> {
+  return fetchJSON<KBListResponse>(`/api/tenants/${tenantId}/knowledge-bases`);
 }
 
 export async function createKB(
+  tenantId: string,
   name: string,
   description?: string
 ): Promise<KnowledgeBase> {
-  return fetchJSON<KnowledgeBase>(`${BASE}/knowledge-bases`, {
+  return fetchJSON<KnowledgeBase>(`/api/tenants/${tenantId}/knowledge-bases`, {
     method: "POST",
     body: JSON.stringify({ name, description }),
   });
 }
 
-export async function deleteKB(id: string): Promise<{ success: boolean }> {
-  return fetchJSON<{ success: boolean }>(`${BASE}/knowledge-bases/${id}`, {
+export async function deleteKB(tenantId: string, id: string): Promise<{ success: boolean }> {
+  return fetchJSON<{ success: boolean }>(`/api/tenants/${tenantId}/knowledge-bases/${id}`, {
     method: "DELETE",
   });
 }
@@ -55,12 +58,13 @@ export async function deleteKB(id: string): Promise<{ success: boolean }> {
 // ── Indexing ─────────────────────────────────────────────────────
 
 export async function indexDocuments(
+  tenantId: string,
   directoryPath: string,
   clearVectorstore = false,
   kbId?: string
 ): Promise<IndexingSummary> {
   const data = await fetchJSON<{ indexing_summary: IndexingSummary }>(
-    `${BASE}/index`,
+    `/api/tenants/${tenantId}/index`,
     {
       method: "POST",
       body: JSON.stringify({
@@ -74,12 +78,13 @@ export async function indexDocuments(
 }
 
 export async function indexFiles(
+  tenantId: string,
   filePaths: string[],
   clearVectorstore = false,
   kbId?: string
 ): Promise<IndexingSummary> {
   const data = await fetchJSON<{ indexing_summary: IndexingSummary }>(
-    `${BASE}/index`,
+    `/api/tenants/${tenantId}/index`,
     {
       method: "POST",
       body: JSON.stringify({
@@ -95,12 +100,13 @@ export async function indexFiles(
 // ── Query ─────────────────────────────────────────────────────────
 
 export async function queryRAG(
+  tenantId: string,
   query: string,
   k = 3,
   scoreThreshold?: number,
   kbId?: string
 ): Promise<QueryResult> {
-  return fetchJSON<QueryResult>(`${BASE}/query`, {
+  return fetchJSON<QueryResult>(`/api/tenants/${tenantId}/query`, {
     method: "POST",
     body: JSON.stringify({
       query,
@@ -112,11 +118,12 @@ export async function queryRAG(
 }
 
 export async function agenticQuery(
+  tenantId: string,
   query: string,
   kbId?: string,
   chatHistory?: { role: string; content: string }[]
 ): Promise<AgenticQueryResult> {
-  return fetchJSON<AgenticQueryResult>(`${BASE}/query/agentic`, {
+  return fetchJSON<AgenticQueryResult>(`/api/tenants/${tenantId}/query/agentic`, {
     method: "POST",
     body: JSON.stringify({
       query,
@@ -128,8 +135,8 @@ export async function agenticQuery(
 
 // ── Index management ──────────────────────────────────────────────
 
-export async function clearIndex(kbId?: string): Promise<{ success: boolean }> {
-  return fetchJSON<{ success: boolean }>(`${BASE}/index`, {
+export async function clearIndex(tenantId: string, kbId?: string): Promise<{ success: boolean }> {
+  return fetchJSON<{ success: boolean }>(`/api/tenants/${tenantId}/index`, {
     method: "DELETE",
     body: JSON.stringify({ kb_id: kbId }),
   });
@@ -137,31 +144,36 @@ export async function clearIndex(kbId?: string): Promise<{ success: boolean }> {
 
 // ── Stats & Health ────────────────────────────────────────────────
 
-export async function getStats(kbId?: string): Promise<SystemStats> {
+export async function getStats(tenantId: string, kbId?: string): Promise<SystemStats> {
   const params = kbId ? `?kb_id=${encodeURIComponent(kbId)}` : "";
-  return fetchJSON<SystemStats>(`${BASE}/stats${params}`);
+  return fetchJSON<SystemStats>(`/api/tenants/${tenantId}/stats${params}`);
 }
 
 export async function getHealth(): Promise<HealthStatus> {
-  return fetchJSON<HealthStatus>(`${BASE}/health`);
+  return fetchJSON<HealthStatus>("/api/health");
 }
 
-export async function getDocuments(kbId?: string): Promise<DocumentList> {
+export async function getDocuments(tenantId: string, kbId?: string): Promise<DocumentList> {
   const params = kbId ? `?kb_id=${encodeURIComponent(kbId)}` : "";
-  return fetchJSON<DocumentList>(`${BASE}/documents${params}`);
+  return fetchJSON<DocumentList>(`/api/tenants/${tenantId}/documents${params}`);
 }
 
 export async function deleteDocument(
+  tenantId: string,
   source: string,
   kbId: string
 ): Promise<{ success: boolean }> {
-  return fetchJSON<{ success: boolean }>(`${BASE}/documents`, {
+  return fetchJSON<{ success: boolean }>(`/api/tenants/${tenantId}/documents`, {
     method: "DELETE",
     body: JSON.stringify({ kb_id: kbId, source }),
   });
 }
 
 // ── File Upload ───────────────────────────────────────────────────
+// 注意：/api/upload 这个代理路由不走 callBackend/resolveCurrentTenant，是
+// 直接把文件写到 Next.js 服务器本地磁盘的 ../data/{kb_id}/ 目录（Phase 1
+// 遗留下来的实现，跟这次的租户路由改造完全无关），所以这个函数故意不加
+// tenantId 参数、URL 也不改。
 
 export async function uploadFiles(
   files: File[],
@@ -174,10 +186,14 @@ export async function uploadFiles(
   if (kbId) {
     formData.append("kb_id", kbId);
   }
-  const res = await fetch(`${BASE}/upload`, {
+  const res = await fetch("/api/upload", {
     method: "POST",
     body: formData,
   });
+  if (res.status === 401) {
+    window.location.href = "/login";
+    throw new Error("未登录");
+  }
   if (!res.ok) {
     const body = await res.text();
     throw new Error(body || `${res.status} ${res.statusText}`);
@@ -188,20 +204,22 @@ export async function uploadFiles(
 // ── Chunks ──────────────────────────────────────────────────────
 
 export async function getChunks(
+  tenantId: string,
   source: string,
   kbId?: string
 ): Promise<ChunkListResponse> {
   const params = new URLSearchParams({ source });
   if (kbId) params.set("kb_id", kbId);
-  return fetchJSON<ChunkListResponse>(`${BASE}/chunks?${params}`);
+  return fetchJSON<ChunkListResponse>(`/api/tenants/${tenantId}/chunks?${params}`);
 }
 
 export async function updateChunk(
+  tenantId: string,
   chunkId: string,
   content: string,
   kbId?: string
 ): Promise<{ success: boolean }> {
-  return fetchJSON<{ success: boolean }>(`${BASE}/chunks`, {
+  return fetchJSON<{ success: boolean }>(`/api/tenants/${tenantId}/chunks`, {
     method: "PUT",
     body: JSON.stringify({ chunk_id: chunkId, content, kb_id: kbId }),
   });
