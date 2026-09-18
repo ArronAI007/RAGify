@@ -2,21 +2,29 @@ import os
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from ..dependencies import KB_LOCK, PROJECT_ROOT, get_kb_manager, resolve_kb_path
+from ..dependencies import KB_LOCK, PROJECT_ROOT, get_kb_manager, resolve_kb_path, require_membership, require_role
 from ..schemas import ClearIndexRequest, DeleteDocRequest, IndexRequest, UpdateChunkRequest
 from ...core.kb_manager import KBManager
+from ...core.tenant_manager import Membership
 from ...core.vectorstores import VectorStoreManager
 from ...config import get_config
 from ...mcp import IndexingPipeline
 
 router = APIRouter()
 
+_DATASET_ROLES = ("OWNER", "ADMIN", "EDITOR", "DATASET_OPERATOR")
 
-@router.post("/api/index")
-def index_documents(body: IndexRequest, manager: KBManager = Depends(get_kb_manager)) -> dict:
+
+@router.post("/api/tenants/{tenant_id}/index")
+def index_documents(
+    tenant_id: str,
+    body: IndexRequest,
+    membership: Membership = Depends(require_role(*_DATASET_ROLES)),
+    manager: KBManager = Depends(get_kb_manager),
+) -> dict:
     with KB_LOCK:
         try:
-            resolve_kb_path(manager, body.kb_id)
+            resolve_kb_path(manager, body.kb_id, tenant_id)
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
         pipeline = IndexingPipeline()
@@ -40,11 +48,16 @@ def index_documents(body: IndexRequest, manager: KBManager = Depends(get_kb_mana
     return {"indexing_summary": result.get("indexing_summary", {})}
 
 
-@router.delete("/api/index")
-def clear_index(body: ClearIndexRequest, manager: KBManager = Depends(get_kb_manager)) -> dict:
+@router.delete("/api/tenants/{tenant_id}/index")
+def clear_index(
+    tenant_id: str,
+    body: ClearIndexRequest,
+    membership: Membership = Depends(require_role(*_DATASET_ROLES)),
+    manager: KBManager = Depends(get_kb_manager),
+) -> dict:
     with KB_LOCK:
         try:
-            resolve_kb_path(manager, body.kb_id)
+            resolve_kb_path(manager, body.kb_id, tenant_id)
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
         vm = VectorStoreManager()
@@ -53,11 +66,16 @@ def clear_index(body: ClearIndexRequest, manager: KBManager = Depends(get_kb_man
     return {"success": True}
 
 
-@router.get("/api/stats")
-def get_stats(kb_id: str | None = None, manager: KBManager = Depends(get_kb_manager)) -> dict:
+@router.get("/api/tenants/{tenant_id}/stats")
+def get_stats(
+    tenant_id: str,
+    kb_id: str | None = None,
+    membership: Membership = Depends(require_membership),
+    manager: KBManager = Depends(get_kb_manager),
+) -> dict:
     with KB_LOCK:
         try:
-            resolve_kb_path(manager, kb_id)
+            resolve_kb_path(manager, kb_id, tenant_id)
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
         cfg = get_config()
@@ -74,11 +92,16 @@ def get_stats(kb_id: str | None = None, manager: KBManager = Depends(get_kb_mana
     }
 
 
-@router.get("/api/documents")
-def list_documents(kb_id: str | None = None, manager: KBManager = Depends(get_kb_manager)) -> dict:
+@router.get("/api/tenants/{tenant_id}/documents")
+def list_documents(
+    tenant_id: str,
+    kb_id: str | None = None,
+    membership: Membership = Depends(require_membership),
+    manager: KBManager = Depends(get_kb_manager),
+) -> dict:
     with KB_LOCK:
         try:
-            resolve_kb_path(manager, kb_id)
+            resolve_kb_path(manager, kb_id, tenant_id)
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
         vm = VectorStoreManager()
@@ -87,15 +110,20 @@ def list_documents(kb_id: str | None = None, manager: KBManager = Depends(get_kb
     return {"documents": sources, "total": len(sources)}
 
 
-@router.delete("/api/documents")
-def delete_document(body: DeleteDocRequest, manager: KBManager = Depends(get_kb_manager)) -> dict:
+@router.delete("/api/tenants/{tenant_id}/documents")
+def delete_document(
+    tenant_id: str,
+    body: DeleteDocRequest,
+    membership: Membership = Depends(require_role(*_DATASET_ROLES)),
+    manager: KBManager = Depends(get_kb_manager),
+) -> dict:
     source = body.source.strip()
     if not source:
         raise HTTPException(status_code=400, detail="缺少 source 参数")
 
     with KB_LOCK:
         try:
-            resolve_kb_path(manager, body.kb_id)
+            resolve_kb_path(manager, body.kb_id, tenant_id)
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
         vm = VectorStoreManager()
@@ -111,14 +139,20 @@ def delete_document(body: DeleteDocRequest, manager: KBManager = Depends(get_kb_
     return {"success": True, "deleted": deleted, "chunks_removed": removed}
 
 
-@router.get("/api/chunks")
-def list_chunks(source: str, kb_id: str | None = None, manager: KBManager = Depends(get_kb_manager)) -> dict:
+@router.get("/api/tenants/{tenant_id}/chunks")
+def list_chunks(
+    tenant_id: str,
+    source: str,
+    kb_id: str | None = None,
+    membership: Membership = Depends(require_membership),
+    manager: KBManager = Depends(get_kb_manager),
+) -> dict:
     if not source.strip():
         raise HTTPException(status_code=400, detail="缺少 source 参数")
 
     with KB_LOCK:
         try:
-            resolve_kb_path(manager, kb_id)
+            resolve_kb_path(manager, kb_id, tenant_id)
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
         vm = VectorStoreManager()
@@ -127,14 +161,19 @@ def list_chunks(source: str, kb_id: str | None = None, manager: KBManager = Depe
     return {"chunks": chunks, "total": len(chunks)}
 
 
-@router.put("/api/chunks")
-def update_chunk(body: UpdateChunkRequest, manager: KBManager = Depends(get_kb_manager)) -> dict:
+@router.put("/api/tenants/{tenant_id}/chunks")
+def update_chunk(
+    tenant_id: str,
+    body: UpdateChunkRequest,
+    membership: Membership = Depends(require_role(*_DATASET_ROLES)),
+    manager: KBManager = Depends(get_kb_manager),
+) -> dict:
     if not body.chunk_id:
         raise HTTPException(status_code=400, detail="缺少 chunk_id 参数")
 
     with KB_LOCK:
         try:
-            resolve_kb_path(manager, body.kb_id)
+            resolve_kb_path(manager, body.kb_id, tenant_id)
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
         vm = VectorStoreManager()
