@@ -59,7 +59,9 @@ export default function QAPage() {
   const [mode, setMode] = useState<QAMode>("standard");
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => { setKbId(null); }, [tenantId]);
+  // 切换工作区时清空知识库选中态和聊天记录——否则 agentic 模式会把上一个
+  // 工作区的问答历史当作 chat_history 传给新工作区，干扰不相关的上下文。
+  useEffect(() => { setKbId(null); setMessages([]); }, [tenantId]);
 
   useEffect(() => {
     listKBs(tenantId)
