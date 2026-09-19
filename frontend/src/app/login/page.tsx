@@ -147,21 +147,7 @@ export default function LoginPage() {
                   placeholder="至少 8 位"
                 />
               </div>
-              {error && (
-                <div className="space-y-1">
-                  <p className="text-sm text-destructive">{error}</p>
-                  <p className="text-sm text-muted-foreground">
-                    还没有账号？
-                    <button
-                      type="button"
-                      onClick={openRegister}
-                      className="text-primary underline underline-offset-2"
-                    >
-                      立即注册
-                    </button>
-                  </p>
-                </div>
-              )}
+              {error && <p className="text-sm text-destructive">{error}</p>}
               <Button type="submit" disabled={submitting} className="w-full">
                 {submitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                 登录
