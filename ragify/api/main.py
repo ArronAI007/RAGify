@@ -1,3 +1,11 @@
+from dotenv import load_dotenv
+
+# 必须在导入任何读取环境变量的模块之前调用——uvicorn 直接跑这个 app 时
+# 不会像 CLI（ragify/cli/cli.py 的 initialize_config）那样自动加载 .env，
+# 之前 RAGIFY_JWT_SECRET/DASHSCOPE_API_KEY 等配置一直被静默忽略，JWT 签名
+# 用的是进程内随机生成的临时密钥，每次重启服务都会让所有人的登录状态失效。
+load_dotenv()
+
 from fastapi import FastAPI
 
 from .routers import auth, documents, health, invitations, kb, query, tenants
