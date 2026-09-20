@@ -1,4 +1,5 @@
 from logging.config import fileConfig
+from pathlib import Path
 
 from sqlalchemy import engine_from_config
 from sqlalchemy import pool
@@ -11,7 +12,11 @@ from ragify.db.session import default_database_url
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
 config = context.config
-config.set_main_option("sqlalchemy.url", default_database_url())
+_db_url = default_database_url()
+config.set_main_option("sqlalchemy.url", _db_url)
+
+if _db_url.startswith("sqlite:///") and _db_url != "sqlite:///:memory:":
+    Path(_db_url[len("sqlite:///"):]).parent.mkdir(parents=True, exist_ok=True)
 
 # Interpret the config file for Python logging.
 # This line sets up loggers basically.

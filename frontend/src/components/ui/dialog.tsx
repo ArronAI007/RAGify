@@ -31,7 +31,11 @@ function DialogOverlay({
     <DialogPrimitive.Backdrop
       data-slot="dialog-overlay"
       className={cn(
-        "fixed inset-0 isolate z-50 bg-black/10 duration-100 supports-backdrop-filter:backdrop-blur-xs data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0",
+        // 不加 backdrop-blur——这是个 fixed 全屏遮罩，一旦背后（比如登录页
+        // 那种 .glass 卡片）也有自己的 backdrop-filter，两层滤镜要一起实时
+        // 合成，在集成显卡的老机器上会导致明显卡顿，去掉这层滤镜换纯色遮罩
+        // 观感损失很小。
+        "fixed inset-0 isolate z-50 bg-black/20 duration-100 data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0",
         className
       )}
       {...props}

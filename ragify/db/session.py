@@ -18,7 +18,10 @@ DEFAULT_DB_PATH = Path("vectorstore") / "ragify.db"
 
 
 def default_database_url() -> str:
-    return os.environ.get("RAGIFY_DATABASE_URL", f"sqlite:///{DEFAULT_DB_PATH}")
+    # .env 里未填值时这个变量是空字符串而不是"不存在"，os.environ.get(key, default)
+    # 只在 key 缺失时才会用 default，空字符串会被当成"已设置"直接返回，导致引擎
+    # 拿一个空 URL 去连接——用 or 让空字符串也走默认值。
+    return os.environ.get("RAGIFY_DATABASE_URL") or f"sqlite:///{DEFAULT_DB_PATH}"
 
 
 @lru_cache(maxsize=8)

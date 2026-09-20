@@ -143,7 +143,9 @@ def create_invitation(
         raise HTTPException(status_code=404, detail="工作区不存在")
     invitation = invitation_manager.create_invitation(tenant_id, body.email, body.role, current_user.id)
 
-    frontend_url = os.environ.get("RAGIFY_FRONTEND_URL", "http://localhost:3000")
+    # .env 里未填值时是空字符串而非"不存在"，os.environ.get(key, default) 只在
+    # key 缺失时才会用 default，需要用 or 让空字符串也走默认值。
+    frontend_url = os.environ.get("RAGIFY_FRONTEND_URL") or "http://localhost:3000"
     invite_url = f"{frontend_url}/invitations/{invitation.token}"
     try:
         send_invitation_email(invitation.email, tenant.name, current_user.name, invite_url)

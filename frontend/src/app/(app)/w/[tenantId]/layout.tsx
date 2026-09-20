@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { callBackend } from "@/lib/backend";
 import { AUTH_COOKIE_NAME } from "@/lib/auth-cookie";
 import { Sidebar } from "@/components/layout/sidebar";
+import { UserMenu, type CurrentUser } from "@/components/layout/user-menu";
 import type { TenantSummary } from "@/components/layout/workspace-switcher";
 
 export default async function WorkspaceLayout({
@@ -19,12 +20,21 @@ export default async function WorkspaceLayout({
   }
 
   let tenants: TenantSummary[];
+  let user: CurrentUser;
   try {
-    tenants = await callBackend<TenantSummary[]>("/api/tenants", undefined, {
-      method: "GET",
-      timeout: 15_000,
-      headers: { Authorization: `Bearer ${token}` },
-    });
+    const authHeaders = { Authorization: `Bearer ${token}` };
+    [tenants, user] = await Promise.all([
+      callBackend<TenantSummary[]>("/api/tenants", undefined, {
+        method: "GET",
+        timeout: 15_000,
+        headers: authHeaders,
+      }),
+      callBackend<CurrentUser>("/api/auth/me", undefined, {
+        method: "GET",
+        timeout: 15_000,
+        headers: authHeaders,
+      }),
+    ]);
   } catch {
     redirect("/login");
   }
@@ -44,6 +54,7 @@ export default async function WorkspaceLayout({
           {children}
         </div>
       </main>
+      <UserMenu user={user} />
     </div>
   );
 }
