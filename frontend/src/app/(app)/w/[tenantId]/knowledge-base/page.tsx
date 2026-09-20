@@ -175,7 +175,7 @@ export default function KnowledgeBasePage() {
     setUploading(true);
     setProgress(15);
     try {
-      const result = await uploadFiles(pendingFiles, selectedKBId);
+      const result = await uploadFiles(tenantId, pendingFiles, selectedKBId);
       setProgress(40);
       if (result.rejected.length > 0) toast.warning(`${result.rejected.length} 个文件格式不支持`);
       setPendingFiles([]);

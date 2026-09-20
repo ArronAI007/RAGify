@@ -173,10 +173,12 @@ export async function deleteDocument(
 // ── File Upload ───────────────────────────────────────────────────
 // 注意：/api/upload 这个代理路由不走 callBackend/resolveCurrentTenant，是
 // 直接把文件写到 Next.js 服务器本地磁盘的 ../data/{kb_id}/ 目录（Phase 1
-// 遗留下来的实现，跟这次的租户路由改造完全无关），所以这个函数故意不加
-// tenantId 参数、URL 也不改。
+// 遗留下来的实现，URL 本身不改）。但这里必须传 tenantId：路由内部要用它
+// 校验 kb_id 确实属于这个工作区，否则任何登录用户都能往别的工作区的
+// kb_id 目录里写文件，构成跨租户投毒。
 
 export async function uploadFiles(
+  tenantId: string,
   files: File[],
   kbId?: string
 ): Promise<UploadResult> {
@@ -184,6 +186,7 @@ export async function uploadFiles(
   for (const f of files) {
     formData.append("files", f);
   }
+  formData.append("tenant_id", tenantId);
   if (kbId) {
     formData.append("kb_id", kbId);
   }
