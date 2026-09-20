@@ -33,11 +33,16 @@ export async function POST(req: NextRequest) {
 
     const dataRoot = path.resolve(process.cwd(), "..", "data");
     const kbId = formData.get("kb_id");
-    // 只取 basename，防止 kb_id/文件名里带 "../" 之类的路径穿越片段逃出
-    // data/ 目录——这两处都是用户可控的表单字段，之前直接拼路径写文件。
+    // 只取 basename 不足以防穿越——path.basename("..") 就是字面量 ".."，
+    // path.join(dataRoot, "..") 会直接跳到 dataRoot 的上一级。basename
+    // 之后还要再校验拼出来的路径确实还在 dataRoot 里面（或就是它本身）。
     let uploadDir = dataRoot;
     if (kbId && typeof kbId === "string") {
-      uploadDir = path.join(dataRoot, path.basename(kbId));
+      const candidate = path.resolve(dataRoot, path.basename(kbId));
+      if (candidate !== dataRoot && !candidate.startsWith(dataRoot + path.sep)) {
+        return NextResponse.json({ error: "非法的 kb_id" }, { status: 400 });
+      }
+      uploadDir = candidate;
     }
     await mkdir(uploadDir, { recursive: true });
 
