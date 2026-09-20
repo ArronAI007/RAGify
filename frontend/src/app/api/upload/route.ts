@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { writeFile, mkdir } from "fs/promises";
 import path from "path";
+import { resolveAuthToken } from "@/lib/auth-token";
 
 const ALLOWED_EXTENSIONS = new Set([
   ".pdf", ".docx", ".doc", ".txt", ".md", ".html", ".htm",
@@ -14,6 +15,12 @@ function isAllowed(filename: string): boolean {
 
 export async function POST(req: NextRequest) {
   try {
+    resolveAuthToken(req);
+  } catch {
+    return NextResponse.json({ error: "未登录" }, { status: 401 });
+  }
+
+  try {
     const formData = await req.formData();
     const entries = formData.getAll("files");
 
@@ -24,10 +31,13 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    const dataRoot = path.resolve(process.cwd(), "..", "data");
     const kbId = formData.get("kb_id");
-    let uploadDir = path.resolve(process.cwd(), "..", "data");
+    // 只取 basename，防止 kb_id/文件名里带 "../" 之类的路径穿越片段逃出
+    // data/ 目录——这两处都是用户可控的表单字段，之前直接拼路径写文件。
+    let uploadDir = dataRoot;
     if (kbId && typeof kbId === "string") {
-      uploadDir = path.join(uploadDir, kbId);
+      uploadDir = path.join(dataRoot, path.basename(kbId));
     }
     await mkdir(uploadDir, { recursive: true });
 
@@ -36,12 +46,13 @@ export async function POST(req: NextRequest) {
 
     for (const entry of entries) {
       if (!(entry instanceof File)) continue;
-      if (!isAllowed(entry.name)) {
+      const safeName = path.basename(entry.name);
+      if (!isAllowed(safeName)) {
         rejected.push(entry.name);
         continue;
       }
       const buffer = Buffer.from(await entry.arrayBuffer());
-      const filePath = path.join(uploadDir, entry.name);
+      const filePath = path.join(uploadDir, safeName);
       await writeFile(filePath, buffer);
       saved.push(filePath);
     }
