@@ -17,7 +17,6 @@ import {
   MessageSquare,
   Settings,
   Users,
-  Search,
   Sparkles,
   Menu,
 } from "lucide-react";
@@ -86,20 +85,6 @@ function NavLinks({
   );
 }
 
-function Footer() {
-  return (
-    <div className="border-t border-border p-4">
-      <div className="glass rounded-lg p-3 text-xs text-muted-foreground">
-        <div className="mb-2 flex items-center gap-2">
-          <Search className="h-3 w-3 text-primary" />
-          <span className="font-medium text-foreground">RAGify v0.1</span>
-        </div>
-        <p>Powered by LangChain + FAISS</p>
-      </div>
-    </div>
-  );
-}
-
 export function Sidebar({
   tenants,
   currentTenantId,
@@ -119,7 +104,6 @@ export function Sidebar({
         <Brand />
         <WorkspaceSwitcher tenants={tenants} currentTenantId={currentTenantId} />
         <NavLinks pathname={pathname} tenantId={currentTenantId} />
-        <Footer />
         <div className="border-t border-border p-3">
           <UserMenu user={user} />
         </div>
@@ -143,7 +127,6 @@ export function Sidebar({
             <Brand />
             <WorkspaceSwitcher tenants={tenants} currentTenantId={currentTenantId} />
             <NavLinks pathname={pathname} tenantId={currentTenantId} onNavigate={() => setOpen(false)} />
-            <Footer />
             <div className="border-t border-border p-3">
               <UserMenu user={user} />
             </div>
