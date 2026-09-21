@@ -22,6 +22,7 @@ import {
   Menu,
 } from "lucide-react";
 import { WorkspaceSwitcher, type TenantSummary } from "@/components/layout/workspace-switcher";
+import { UserMenu, type CurrentUser } from "@/components/layout/user-menu";
 
 function Brand() {
   return (
@@ -102,9 +103,11 @@ function Footer() {
 export function Sidebar({
   tenants,
   currentTenantId,
+  user,
 }: {
   tenants: TenantSummary[];
   currentTenantId: string;
+  user: CurrentUser;
 }) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
@@ -117,6 +120,9 @@ export function Sidebar({
         <WorkspaceSwitcher tenants={tenants} currentTenantId={currentTenantId} />
         <NavLinks pathname={pathname} tenantId={currentTenantId} />
         <Footer />
+        <div className="border-t border-border p-3">
+          <UserMenu user={user} />
+        </div>
       </aside>
 
       {/* 移动端：顶部栏 + 抽屉导航 */}
@@ -138,6 +144,9 @@ export function Sidebar({
             <WorkspaceSwitcher tenants={tenants} currentTenantId={currentTenantId} />
             <NavLinks pathname={pathname} tenantId={currentTenantId} onNavigate={() => setOpen(false)} />
             <Footer />
+            <div className="border-t border-border p-3">
+              <UserMenu user={user} />
+            </div>
           </SheetContent>
         </Sheet>
         <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10">

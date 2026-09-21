@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { callBackend } from "@/lib/backend";
 import { AUTH_COOKIE_NAME } from "@/lib/auth-cookie";
 import { Sidebar } from "@/components/layout/sidebar";
-import { UserMenu, type CurrentUser } from "@/components/layout/user-menu";
+import type { CurrentUser } from "@/components/layout/user-menu";
 import type { TenantSummary } from "@/components/layout/workspace-switcher";
 
 export default async function WorkspaceLayout({
@@ -48,13 +48,12 @@ export default async function WorkspaceLayout({
 
   return (
     <div className="flex min-h-screen flex-col lg:flex-row">
-      <Sidebar tenants={tenants} currentTenantId={tenantId} />
+      <Sidebar tenants={tenants} currentTenantId={tenantId} user={user} />
       <main className="flex-1 overflow-auto lg:ml-64">
         <div className="mx-auto max-w-6xl px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
           {children}
         </div>
       </main>
-      <UserMenu user={user} />
     </div>
   );
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { LogOut, User as UserIcon } from "lucide-react";
+import { LogOut, ChevronsUpDown } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
   DropdownMenu,
@@ -32,16 +32,19 @@ export function UserMenu({ user }: { user: CurrentUser }) {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
-        className="glass fixed right-4 bottom-4 z-40 flex h-11 w-11 items-center justify-center rounded-full shadow-md transition-transform hover:scale-105"
+        className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors hover:bg-accent"
         aria-label="账户菜单"
       >
         <Avatar>
-          <AvatarFallback>
-            {initial ? initial.toUpperCase() : <UserIcon className="h-4 w-4" />}
-          </AvatarFallback>
+          <AvatarFallback>{initial.toUpperCase()}</AvatarFallback>
         </Avatar>
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-medium text-foreground">{user.name}</p>
+          <p className="truncate text-xs text-muted-foreground">{user.email}</p>
+        </div>
+        <ChevronsUpDown className="h-4 w-4 shrink-0 text-muted-foreground" />
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" side="top" className="w-56">
+      <DropdownMenuContent align="start" side="top" className="w-56">
         <DropdownMenuGroup>
           <DropdownMenuLabel>
             <p className="truncate font-medium text-foreground">{user.name}</p>
